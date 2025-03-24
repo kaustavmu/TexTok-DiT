@@ -1,0 +1,5 @@
+.venv
+build
+
+*_cache
+*.egg-info/
