@@ -270,6 +270,7 @@ class DiffusionTransformer:
         self.clip_model = self.clip_model.to(device)
 
         if cfg.use_textok:
+            print('Using Textok!')
             textok = TexTok(cfg.textok_cfg, device).to(device)
             self.diffuser = DiffusionGenerator1D(denoiser,
                                                  textok,

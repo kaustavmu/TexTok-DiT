@@ -23,7 +23,7 @@ class DenoiserConfig:
     seq_len: int = 64  # number of tokens
     noise_embed_dims: int = 256
     patch_size: int = 1  # diffusion patch size
-    embed_dim: int = 128  # DiT hidden dimension
+    embed_dim: int = 384  # DiT hidden dimension
     dropout: float = 0
     n_layers: int = 3  # DiT layer count
     text_emb_size: int = 768  # CLIP embedding size

@@ -99,7 +99,7 @@ class Denoiser(nn.Module):
         self.label_proj = nn.Linear(text_emb_size, self.embed_dim)
 
     def forward(self, x, noise_level, label):
-        # x: B x D x N
+        # x: latent token: B x D x N
         # print(x.shape)
         # print(noise_level.shape)
         # print(label.shape)
