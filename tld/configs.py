@@ -92,7 +92,8 @@ class LTDConfig:
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
-    use_textok: bool = True
+    use_textok: bool = False
+    use_titok: bool = True
 
 
 @dataclass
@@ -105,7 +106,9 @@ class ModelConfig:
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
-
+    use_textok: bool = False
+    use_titok: bool = True
+    use_image_data: bool = True
 
 if __name__=='__main__':
     cfg = DenoiserConfig()

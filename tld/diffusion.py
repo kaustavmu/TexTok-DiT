@@ -1,6 +1,8 @@
 from dataclasses import dataclass, asdict
 
-import clip
+# import clip
+from transformers import CLIPProcessor, CLIPModel
+
 import numpy as np
 import requests
 import torch
@@ -12,6 +14,7 @@ from tqdm import tqdm
 
 from tld.denoiser import Denoiser
 from tld.tokenizer import TexTok
+from TitokTokenizer.modeling.titok import TiTok
 
 from tld.configs import LTDConfig
 
@@ -129,7 +132,7 @@ class DiffusionGenerator:
 @dataclass
 class DiffusionGenerator1D:
     model: Denoiser
-    textok: TexTok
+    tokenizer: TexTok
     device: torch.device
     model_dtype: torch.dtype = torch.float32
 
@@ -200,7 +203,10 @@ class DiffusionGenerator1D:
 
         pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
-        x0_pred_img = self.textok.decode(pred_img_tokens, prompts).cpu()
+        # if titok:
+        x0_pred_img = self.tokenizer.decode_tokens(pred_img_tokens, prompts).cpu()
+        # else:
+        #     x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
         return x0_pred_img, x0_pred
 
     def pred_image(self, noisy_latent, labels, noise_level, class_guidance):
@@ -266,14 +272,23 @@ class DiffusionTransformer:
 
         denoiser = denoiser.to(device)
 
-        self.clip_model, preprocess = clip.load(cfg.clip_cfg.clip_model_name)
-        self.clip_model = self.clip_model.to(device)
+        # self.clip_model, preprocess = clip.load(cfg.clip_cfg.clip_model_name)
+        # self.clip_model = self.clip_model.to(device)
+        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_preprocess = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
         if cfg.use_textok:
             print('Using Textok!')
             textok = TexTok(cfg.textok_cfg, device).to(device)
             self.diffuser = DiffusionGenerator1D(denoiser,
                                                  textok,
+                                                 device,
+                                                 cfg.denoiser_load.dtype)
+        elif cfg.use_titok:
+            print('Using Titok!')
+            titok = TiTok(cfg.titok_cfg, device).to(device)
+            self.diffuser = DiffusionGenerator1D(denoiser,
+                                                 titok,
                                                  device,
                                                  cfg.denoiser_load.dtype)
         else:
@@ -287,7 +302,9 @@ class DiffusionTransformer:
         nrow = int(np.sqrt(num_imgs))
 
         cur_prompts = [prompt] * num_imgs
-        labels = encode_text(cur_prompts, self.clip_model)
+        # labels = encode_text(cur_prompts, self.clip_model)
+        labels = self.clip_preprocess(text=cur_prompts).input_ids.to(device)
+        
         out, out_latent = self.diffuser.generate(
             prompts=cur_prompts,
             labels=labels,
