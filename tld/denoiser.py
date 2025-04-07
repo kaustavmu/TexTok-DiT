@@ -56,7 +56,7 @@ class DenoiserTransBlock(nn.Module):
 
     def forward(self, x, cond):
         # Convert input to high-dimensional embedding
-        x = self.patch_embedding(x)  # B x seq_len x embed_dim
+        # x = self.patch_embedding(x)  # B x seq_len x embed_dim
 
         pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1)
         x = x + self.pos_embed(pos_enc)
