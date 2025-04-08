@@ -139,8 +139,8 @@ class DiffusionGenerator1D:
     @torch.no_grad()
     def generate(
         self,
-        prompts: str,
         labels: Tensor,  # embeddings to condition on
+        prompts: str = "", #for titok
         n_iter: int = 30,
         num_imgs: int = 16,
         class_guidance: float = 3,
@@ -167,8 +167,8 @@ class DiffusionGenerator1D:
             hs = [lambdas[i] - lambdas[i - 1] for i in range(1, len(lambdas))]
             rs = [hs[i - 1] / hs[i] for i in range(1, len(hs))]
 
-        x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed)
-        print(f'generate func - {x_t.shape}, {seeds}')
+        x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed) #change to init tokens?
+        print(f'generate func - {x_t.shape}, {seeds}') #should be of the shape B x 1 x 32 ?
 
         labels = torch.cat([labels, torch.zeros_like(labels)])
         self.model.eval()
@@ -203,10 +203,10 @@ class DiffusionGenerator1D:
 
         pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
-        # if titok:
-        x0_pred_img = self.tokenizer.decode_tokens(pred_img_tokens, prompts).cpu()
-        # else:
-        #     x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
+        if LTDConfig.use_titok:
+            x0_pred_img = self.tokenizer.decode_tokens(pred_img_tokens).cpu()
+        else:
+            x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
         return x0_pred_img, x0_pred
 
     def pred_image(self, noisy_latent, labels, noise_level, class_guidance):

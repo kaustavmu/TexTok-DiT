@@ -73,6 +73,24 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Ima
 
     return out
 
+def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int) -> Image:
+    class_guidance = 4.5
+    seed = 10
+    out, _ = diffuser.generate(
+        labels=torch.repeat_interleave(labels, 2, dim=0),
+        num_imgs=16,
+        class_guidance=class_guidance,
+        seed=seed,
+        n_iter=40,
+        exponent=1,
+        sharp_f=0.1,
+        n_tokens=n_tokens
+    )
+
+    out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
+    out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
+
+    return out
 
 def count_parameters(model: nn.Module):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -142,7 +160,10 @@ def main(config: ModelConfig) -> None:
         clip_preprocess = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         txt_emb_projector = torch.nn.Linear(clip_model.text_model.config.hidden_size, denoiser_config.text_emb_size).to(accelerator.device)
         
-        # emb_val = clip_preprocess(text="a cute grey great owl", return_tensors="pt", padding=True).input_ids
+        txt_inputs_val = clip_preprocess(text=("a cute grey great owl"), return_tensors="pt", padding=True).to(accelerator.device)
+        emb_val = clip_model.get_text_features(**txt_inputs_val)
+        emb_val = torch.nn.functional.normalize(emb_val, dim=-1)
+        emb_val = txt_emb_projector(emb_val)
     
     else:
         latent_train_data = torch.tensor(np.load(dataconfig.latent_path), dtype=torch.float32)
@@ -155,6 +176,7 @@ def main(config: ModelConfig) -> None:
         print('Using Textok!')
         textok = TexTok(config.textok_cfg, accelerator.device).to(accelerator.device)
     elif config.use_titok:
+        #TODO: freeze tokenizer 
         print('Using Titok!')
         titok = TiTok.from_pretrained("yucornetto/tokenizer_titok_l32_imagenet")
         if accelerator.is_main_process:
@@ -235,29 +257,28 @@ def main(config: ModelConfig) -> None:
             mask = torch.rand(y.size(0), device=accelerator.device) < prob
             label[mask] = 0  # OR replacement_vector
 
-            # TODO: fix eval code with tokenizer
-            # if global_step % train_config.save_and_eval_every_iters == 0:
-            #     accelerator.wait_for_everyone()
-            #     if accelerator.is_main_process:
-            #         ##eval and saving:
-            #         if config.use_titok:
-            #             out = eval_gen(diffuser=diffuser, labels=emb_val, img_size=denoiser_config.seq_len)
-            #         else:
-            #             out = eval_gen(diffuser=diffuser, labels=emb_val, img_size=denoiser_config.image_size)
-            #         out.save("img.jpg")
-            #         if train_config.use_wandb:
-            #             accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
+            if global_step % train_config.save_and_eval_every_iters == 0:
+                accelerator.wait_for_everyone()
+                if accelerator.is_main_process:
+                    ##eval and saving:
+                    if config.use_titok:
+                        out = eval_gen_1D(diffuser=diffuser, labels=emb_val, n_tokens=denoiser_config.seq_len)
+                    else:
+                        out = eval_gen(diffuser=diffuser, labels=emb_val, img_size=denoiser_config.image_size)
+                    out.save("img.jpg")
+                    if train_config.use_wandb:
+                        accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
 
-            #         opt_unwrapped = accelerator.unwrap_model(optimizer)
-            #         full_state_dict = {
-            #             "model_ema": ema_model.state_dict(),
-            #             "opt_state": opt_unwrapped.state_dict(),
-            #             "global_step": global_step,
-            #         }
-            #         if train_config.save_model:
-            #             accelerator.save(full_state_dict, train_config.model_name)
-            #             if train_config.use_wandb:
-            #                 wandb.save(train_config.model_name)
+                    opt_unwrapped = accelerator.unwrap_model(optimizer)
+                    full_state_dict = {
+                        "model_ema": ema_model.state_dict(),
+                        "opt_state": opt_unwrapped.state_dict(),
+                        "global_step": global_step,
+                    }
+                    if train_config.save_model:
+                        accelerator.save(full_state_dict, train_config.model_name)
+                        if train_config.use_wandb:
+                            wandb.save(train_config.model_name)
 
             model.train()
 
