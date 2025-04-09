@@ -20,14 +20,14 @@ class DataDownloadConfig:
 
 @dataclass
 class DenoiserConfig:
-    seq_len: int = 64  # number of tokens
+    seq_len: int = 32  # number of tokens
     noise_embed_dims: int = 256
     patch_size: int = 1  # diffusion patch size
     embed_dim: int = 384  # DiT hidden dimension
     dropout: float = 0
     n_layers: int = 3  # DiT layer count
-    text_emb_size: int = 768  # CLIP embedding size
-    n_channels: int = 4  # Latent token dimension
+    text_emb_size: int = 512  # CLIP embedding size
+    n_channels: int = 12  # Latent token dimension
     mlp_multiplier: int = 4
 
 @dataclass
@@ -76,9 +76,9 @@ class TrainConfig:
     ##betas determine the distribution of noise seen during training
     beta_a: float = 1  
     beta_b: float = 2.5
-    save_and_eval_every_iters: int = 1000
-    run_id: str = ""
-    model_name: str = ""
+    save_and_eval_every_iters: int = 200
+    run_id: str = "second-run"
+    model_name: str = "checkpoints.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True

@@ -6,7 +6,7 @@ from torch import nn
 
 from tld.transformer_blocks import DecoderBlock, MLPSepConv, SinusoidalEmbedding, MLP
 from configs import DenoiserConfig
-
+import pdb
 
 class DenoiserTransBlock(nn.Module):
     def __init__(
@@ -56,7 +56,7 @@ class DenoiserTransBlock(nn.Module):
 
     def forward(self, x, cond):
         # Convert input to high-dimensional embedding
-        # x = self.patch_embedding(x)  # B x seq_len x embed_dim
+        x = self.patch_embedding(x)  # B x seq_len x embed_dim
 
         pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1)
         x = x + self.pos_embed(pos_enc)
@@ -109,11 +109,11 @@ class Denoiser(nn.Module):
         noise_level = self.fourier_feats(noise_level).unsqueeze(1)
 
         label = self.label_proj(label).unsqueeze(1)
-
+        # pdb.set_trace()
         noise_label_emb = torch.cat([noise_level, label], dim=1)  # bs, 2, d
         noise_label_emb = self.norm(noise_label_emb)
 
-        x = self.denoiser_trans_block(x, noise_label_emb)
+        x = self.denoiser_trans_block(x, noise_label_emb) #x: bs, 
 
         x = x.permute(0, 2, 1)
         return x

@@ -69,7 +69,7 @@ class DiffusionGenerator:
 
         for i in tqdm(range(len(noise_levels) - 1)):
             curr_noise, next_noise = noise_levels[i], noise_levels[i + 1]
-
+            
             x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance)
 
             if x0_pred_prev is None:
@@ -168,7 +168,7 @@ class DiffusionGenerator1D:
             rs = [hs[i - 1] / hs[i] for i in range(1, len(hs))]
 
         x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed) #change to init tokens?
-        print(f'generate func - {x_t.shape}, {seeds}') #should be of the shape B x 1 x 32 ?
+        # print(f'generate func - {x_t.shape}, {seeds}, {labels.shape}') #should be of the shape B x 1 x 32 ?
 
         labels = torch.cat([labels, torch.zeros_like(labels)])
         self.model.eval()
@@ -180,7 +180,6 @@ class DiffusionGenerator1D:
 
             x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance)
 
-            print(x0_pred.shape, curr_noise, next_noise, x_t.shape)
             if x0_pred_prev is None:
                 x_t = ((curr_noise - next_noise) * x0_pred + next_noise * x_t) / curr_noise
             else:
@@ -204,7 +203,11 @@ class DiffusionGenerator1D:
         pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
         if LTDConfig.use_titok:
-            x0_pred_img = self.tokenizer.decode_tokens(pred_img_tokens).cpu()
+            #get the indices
+            # quantized_states, codebook_indices, codebook_loss = self.tokenizer.quantize(pred_img_tokens)
+            print(pred_img_tokens.shape)
+            pred_img_tokens = pred_img_tokens.permute(0,2,1)
+            x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
         else:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
         return x0_pred_img, x0_pred
@@ -252,9 +255,12 @@ def download_file(url, filename):
 @torch.no_grad()
 def encode_text(label, model):
     # TODO: Switchout to T5 encoder?
-    text_tokens = clip.tokenize(label, truncate=True).to(device)
-    text_encoding = model.encode_text(text_tokens)
-    return text_encoding.cpu()
+    # text_tokens = clip.tokenize(label, truncate=True).to(device)
+    # text_encoding = model.encode_text(text_tokens)
+    # return text_encoding.cpu()
+    embedding = model.get_text_features(**label)
+    embedding = torch.nn.functional.normalize(embedding, dim=-1)
+    return embedding
 
 
 class DiffusionTransformer:
