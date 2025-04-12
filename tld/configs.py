@@ -29,6 +29,8 @@ class DenoiserConfig:
     text_emb_size: int = 512  # CLIP embedding size
     n_channels: int = 12  # Latent token dimension
     mlp_multiplier: int = 4
+    image_emb_size: int | None = 768
+    super_res: bool = True
 
 @dataclass
 class DenoiserLoad:
@@ -68,7 +70,7 @@ class DataConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 128 
+    batch_size: int = 1 
     lr: float = 3e-4
     n_epoch: int = 100
     alpha: float = 0.999
