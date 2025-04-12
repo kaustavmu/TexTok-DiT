@@ -70,7 +70,7 @@ class DataConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 1 
+    batch_size: int = 128 
     lr: float = 3e-4
     n_epoch: int = 100
     alpha: float = 0.999
