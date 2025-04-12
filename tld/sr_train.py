@@ -47,7 +47,7 @@ class COCODataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.img_ids)
 
-    def __getitem__(self, idx):
+    def _process(self, idx):
         img_id = self.img_ids[idx]
         ann_ids = self.coco.getAnnIds(imgIds=img_id)
         anns = self.coco.loadAnns(ann_ids)
@@ -61,6 +61,20 @@ class COCODataset(torch.utils.data.Dataset):
             image = self.transform(image)
         
         return image, caption
+
+    def __getitem__(self, idx):
+        image, caption = self._process(idx)
+        
+        return image, caption
+
+class SR_COCODataset(COCODataset):
+    def __init__(self, img_dir, ann_file, transform = None):
+        super().__init__(img_dir, ann_file, transform)
+
+    def __getitem__(self, idx):
+        image, caption = self._process(idx)
+
+        return image, caption, image
 
 def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
     class_guidance = 4.5
@@ -136,51 +150,7 @@ def main(config: ModelConfig) -> None:
     current_time = datetime.now()
     checkpoint_folder = current_time.strftime('%Y-%m-%d_%H-%M-%S')
     os.makedirs(f'checkpoints/{checkpoint_folder}', exist_ok=True)
-    
-    if config.use_image_data:
-        transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            # transforms.ToTensor()
-        ])
-        #train_dataset = COCODataset(img_dir="/home/tchoudha/coco2017/train2017",
-        #                    ann_file="/home/tchoudha/coco2017/annotations/captions_train2017.json", 
-        #                    transform=transform)
-        
-        val_dataset = COCODataset(img_dir="/home/11777/TexTok-DiT/val2017",
-                            ann_file="/home/11777/TexTok-DiT/annotations/captions_val2017.json", 
-                            transform=transform)
-
-        #train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
-        train_loader = DataLoader(val_dataset, batch_size=train_config.batch_size, shuffle=True)
-
-        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(accelerator.device)
-        clip_preprocess = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        
-        dino_processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
-        dino_model = AutoModel.from_pretrained('facebook/dinov2-base')
-
-        txt_inputs_val = clip_preprocess(text=("a cute grey great owl"), return_tensors="pt", padding=True).to(accelerator.device)
-        emb_val = encode_text(txt_inputs_val, clip_model)
-        
-        url = 'http://images.cocodataset.org/val2017/000000039769.jpg'
-        image = Image.open(requests.get(url, stream=True).raw)
-        
-        temp = dino_processor(images=image, return_tensors="pt")
-        z = dino_model(**temp)[0]
-    
-        cls = z[:, 0]
-        max_pooled = torch.max(z[:, 1:], dim=1)[0]
-        img_val = torch.cat([cls, max_pooled], dim=1).to('cuda')
-
-    else:
-        latent_train_data = torch.tensor(np.load(dataconfig.latent_path), dtype=torch.float32)
-        train_label_embeddings = torch.tensor(np.load(dataconfig.text_emb_path), dtype=torch.float32)
-        train_image_embeddings = torch.tensor(np.load(dataconfig.image_emb_path), dtype=torch.float32)
-        emb_val = torch.tensor(np.load(dataconfig.val_path), dtype=torch.float32)
-        img_val = torch.tensor(np.load(dataconfig.val_img_path), dtype=torch.float32)
-        dataset = TensorDataset(latent_train_data, train_label_embeddings, train_image_embeddings)
-        train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
-
+   
     if config.use_textok:
         print('Using Textok!')
         textok = TexTok(config.textok_cfg, accelerator.device).to(accelerator.device)
@@ -193,6 +163,88 @@ def main(config: ModelConfig) -> None:
         vae = AutoencoderKL.from_pretrained(config.vae_cfg.vae_name, torch_dtype=config.vae_cfg.vae_dtype)
         if accelerator.is_main_process:
             vae = vae.to(accelerator.device)
+    
+
+    if config.use_image_data:
+        
+        if not os.path.exists(config.latents_path):
+            transform = transforms.Compose([
+                transforms.Resize((256, 256)),
+            ])
+            
+            train_dataset = SR_COCODataset(img_dir="/home/11777/TexTok-DiT/val2017",
+                                ann_file="/home/11777/TexTok-DiT/annotations/captions_val2017.json", 
+                                transform=transform)
+
+            train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
+
+            clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(accelerator.device)
+            clip_preprocess = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            
+            dino_processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
+            dino_model = AutoModel.from_pretrained('facebook/dinov2-base').to(accelerator.device)
+
+            x_list, y_list, z_list = [], [], []
+            
+            print('processing data!')
+            
+            for x, y, z in tqdm(train_loader):
+                
+                x = x.to('cuda') 
+                z = z.to('cuda') 
+
+                z -= torch.min(z)
+                z /= torch.max(z)
+                z = dino_processor(images=z, return_tensors="pt").to(accelerator.device)
+                z = dino_model(**z)
+                z = z[0]
+
+                cls = z[:, 0]
+                max_pooled = torch.max(z[:, 1:], dim = 1)[0]
+                pooled = torch.cat([cls, max_pooled], dim=1)
+
+                if config.use_titok:
+                    with torch.no_grad():
+                        x, _ = titok.encode(x)
+                    x = x.squeeze(2)
+
+                y = clip_preprocess(text = y, return_tensors = "pt", padding = True).to(accelerator.device)
+                y = encode_text(y, clip_model)
+
+                x_list.append(x.detach().cpu().numpy().astype(np.float32))
+                y_list.append(y.detach().cpu().numpy().astype(np.float32))
+                z_list.append(pooled.detach().cpu().numpy().astype(np.float32))
+            
+            x_val, y_val, z_val = x_list[0], y_list[0], z_list[0]
+
+            x_all = np.concatenate(x_list[1:], axis=0)
+            y_all = np.concatenate(y_list[1:], axis=0)
+            z_all = np.concatenate(z_list[1:], axis=0)
+
+            np.savez(config.latents_path, x_all = x_all, y_all = y_all, z_all = z_all, x_val = x_val, y_val = y_val, z_val = z_val)
+
+        latents_file = np.load(config.latents_path)
+        print([(i, latents_file[i].shape) for i in latents_file.files])
+        x_val = torch.from_numpy(latents_file['x_val']).to('cuda')
+        y_val = torch.from_numpy(latents_file['y_val']).to('cuda')
+        z_val = torch.from_numpy(latents_file['z_val']).to('cuda')
+
+        x_all = torch.from_numpy(latents_file['x_all'])
+        y_all = torch.from_numpy(latents_file['y_all'])
+        z_all = torch.from_numpy(latents_file['z_all'])
+    
+        dataset = TensorDataset(x_all, y_all, z_all)
+        train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
+    
+    else:
+        latent_train_data = torch.tensor(np.load(dataconfig.latent_path), dtype=torch.float32)
+        train_label_embeddings = torch.tensor(np.load(dataconfig.text_emb_path), dtype=torch.float32)
+        train_image_embeddings = torch.tensor(np.load(dataconfig.image_emb_path), dtype=torch.float32)
+        emb_val = torch.tensor(np.load(dataconfig.val_path), dtype=torch.float32)
+        img_val = torch.tensor(np.load(dataconfig.val_img_path), dtype=torch.float32)
+        dataset = TensorDataset(latent_train_data, train_label_embeddings, train_image_embeddings)
+        train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
+
 
     model = Denoiser(**asdict(denoiser_config))
 
@@ -235,14 +287,17 @@ def main(config: ModelConfig) -> None:
     for i in range(1, train_config.n_epoch + 1):
         accelerator.print(f"epoch: {i}")
 
-        for x, y in tqdm(train_loader):
+        for x, y, z in tqdm(train_loader):
+            
+            x, y, z = x.to('cuda'), y.to('cuda'), z.to('cuda')
+            '''
             if config.use_image_data:
+                
                 #print(x.shape)
                 #image = transforms.ToPILImage()(x)
-                x2 = x.clone().to('cuda')
-                x2 -= torch.min(x2)
-                x2 /= torch.max(x2)
-                z = dino_processor(images=x2, return_tensors="pt")
+                z -= torch.min(z)
+                z /= torch.max(z)
+                z = dino_processor(images=z, return_tensors="pt")
                 z = dino_model(**z)
                 z = z[0] 
                 
@@ -258,9 +313,11 @@ def main(config: ModelConfig) -> None:
                     x = x.squeeze(2)
                 y = clip_preprocess(text=y, return_tensors="pt", padding=True).to(accelerator.device)
                 y = encode_text(y, clip_model)
+                
 
             else:
                 x = x / config.vae_cfg.vae_scale_factor
+            '''
 
             noise_level = torch.tensor(
                 np.random.beta(train_config.beta_a, train_config.beta_b, len(x)), device=accelerator.device
@@ -276,8 +333,7 @@ def main(config: ModelConfig) -> None:
             x_noisy = x_noisy.float()
             noise_level = noise_level.float()
             label = y
-            img_label = pooled.to('cuda')
-            img_label.to('cuda')
+            img_label = z
             
             #print('aaaaaaAAAAAAAAAAAAAAAAAAAAA', y.shape, img_label.shape)
 
@@ -291,9 +347,9 @@ def main(config: ModelConfig) -> None:
                 if accelerator.is_main_process:
                     ##eval and saving:
                     if config.use_titok:
-                        out = eval_gen_1D(diffuser=diffuser, labels=emb_val, n_tokens=denoiser_config.seq_len, img_labels = img_val)
+                        out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
                     else:
-                        out = eval_gen(diffuser=diffuser, labels=emb_val, img_size=denoiser_config.image_size)
+                        out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size)
                     out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)

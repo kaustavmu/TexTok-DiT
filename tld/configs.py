@@ -70,7 +70,7 @@ class DataConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 128 
+    batch_size: int = 1 
     lr: float = 3e-4
     n_epoch: int = 100
     alpha: float = 0.999
@@ -111,6 +111,7 @@ class ModelConfig:
     use_textok: bool = False
     use_titok: bool = True
     use_image_data: bool = True
+    latents_path: str = "/home/11777/TexTok-DiT/preprocess.npz"
 
 if __name__=='__main__':
     cfg = DenoiserConfig()
