@@ -73,7 +73,7 @@ class SR_COCODataset(COCODataset):
 
     def __getitem__(self, idx):
         image, caption = self._process(idx)
-
+        #TODO: add LR image
         return image, caption, image
 
 def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
@@ -102,7 +102,7 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, i
     print("train",labels.shape)
     out, _ = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
-        num_imgs=1,
+        num_imgs=labels.shape[0],
         class_guidance=class_guidance,
         seed=seed,
         n_iter=40,
@@ -215,7 +215,6 @@ def main(config: ModelConfig) -> None:
                 x_list.append(x.detach().cpu().numpy().astype(np.float32))
                 y_list.append(y.detach().cpu().numpy().astype(np.float32))
                 z_list.append(pooled.detach().cpu().numpy().astype(np.float32))
-            
             x_val, y_val, z_val = x_list[0], y_list[0], z_list[0]
 
             x_all = np.concatenate(x_list[1:], axis=0)

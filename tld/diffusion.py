@@ -1,6 +1,6 @@
 from dataclasses import dataclass, asdict
 
-import clip
+# import clip
 from transformers import CLIPProcessor, CLIPModel
 
 import numpy as np
@@ -260,12 +260,12 @@ def download_file(url, filename):
 @torch.no_grad()
 def encode_text(label, model):
     # TODO: Switchout to T5 encoder?
-    text_tokens = clip.tokenize(label, truncate=True).to(device)
-    text_encoding = model.encode_text(text_tokens)
-    return text_encoding.cpu()
-    # embedding = model.get_text_features(**label)
-    # embedding = torch.nn.functional.normalize(embedding, dim=-1)
-    # return embedding
+    # text_tokens = clip.tokenize(label, truncate=True).to(device)
+    # text_encoding = model.encode_text(text_tokens)
+    # return text_encoding.cpu()
+    embedding = model.get_text_features(**label)
+    embedding = torch.nn.functional.normalize(embedding, dim=-1)
+    return embedding
 
 
 class DiffusionTransformer:
