@@ -31,8 +31,6 @@ from pycocotools.coco import COCO
 from datetime import datetime
 import os
 
-import pdb
-
 class COCODataset(torch.utils.data.Dataset):
     def __init__(self, img_dir, ann_file, transform=None):
         self.coco = COCO(ann_file)
@@ -83,7 +81,7 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int) -
     seed = 10
     out, _ = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
-        num_imgs=1,
+        num_imgs=labels.shape[0],
         class_guidance=class_guidance,
         seed=seed,
         n_iter=40,
@@ -284,13 +282,13 @@ def main(config: ModelConfig) -> None:
                 accelerator.backward(loss)
                 optimizer.step()
 
-                #log one train 
-                # image
-                if train_config.use_wandb:
-                    if accelerator.is_main_process:
-                        if config.use_titok:
-                            train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
-                        accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
+                #log one train image
+                if global_step % train_config.save_and_eval_every_iters == 0:
+                    if train_config.use_wandb:
+                        if accelerator.is_main_process:
+                            if config.use_titok:
+                                train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                            accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
 
                 if accelerator.is_main_process:
                     update_ema(ema_model, model, alpha=train_config.alpha)
@@ -303,9 +301,7 @@ def main(config: ModelConfig) -> None:
 # notebook_launcher(training_loop)
 if __name__ == "__main__":
     
-    data_config = DataConfig(
-        latent_path="latents.npy", text_emb_path="text_emb.npy", val_path="val_emb.npy"
-    )
+    data_config = DataConfig()
 
     model_cfg = ModelConfig(
         data_config=data_config,

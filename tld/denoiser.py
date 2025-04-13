@@ -103,41 +103,18 @@ class Denoiser(nn.Module):
         self.image_proj = nn.Linear(2*image_emb_size, self.embed_dim)
 
     def forward(self, x, noise_level, label, image = None):
-        # x: latent token: B x D x N
-        # print(x.shape)
-        # print(noise_level.shape)
-        # print(label.shape)
-
-        # TODO: check if this okay : B X D X N 
-       
-        #print('aaauheuganruisgenia', x.shape, noise_level.shape, label.shape, image.shape)
 
         x = x.permute(0, 2, 1)
         noise_level = self.fourier_feats(noise_level).unsqueeze(1)
 
-        print(label.shape, image.shape)
-        print(self.label_proj, self.image_proj )
         label = self.label_proj(label).unsqueeze(1)
         if image != None and self.super_res:
-            
-            #cls = image[:, 0]
-            #max_pooled = torch.max(image[:, 1:], dim=1)[0]
-            #pooled = torch.cat([cls, max_pooled], dim=1)
-                
-            #pooled = torch.cat([pooled, torch.zeros_like(pooled)])
-
-            #print('PPPPPPPPPPPPPPooled', pooled.shape, 'image', image.shape)
-
             lr_img = self.image_proj(image).unsqueeze(1)
-            
-            #print('CUHHHHHHH', noise_level.shape, label.shape, lr_img.shape)
-
             noise_label_emb = torch.cat([noise_level, label, lr_img], dim=1)  # bs, 2, d
         else:
             noise_label_emb = torch.cat([noise_level, label], dim=1)  # bs, 2, d
 
         noise_label_emb = self.norm(noise_label_emb)
-
         x = self.denoiser_trans_block(x, noise_label_emb) #x: bs, 
 
         x = x.permute(0, 2, 1)

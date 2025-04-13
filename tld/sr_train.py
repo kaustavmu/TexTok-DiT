@@ -25,7 +25,7 @@ from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
 from tld.diffusion import DiffusionGenerator, DiffusionGenerator1D, encode_text
-from tld.configs import ModelConfig, DataConfig, TrainConfig
+from tld.configs import ModelConfig, DataConfig, TrainConfig, DenoiserConfig
 
 from pycocotools.coco import COCO
 from datetime import datetime
@@ -74,7 +74,10 @@ class SR_COCODataset(COCODataset):
     def __getitem__(self, idx):
         image, caption = self._process(idx)
         #TODO: add LR image
-        return image, caption, image
+        lr_image = image.clone()
+        # Resize to 64x64
+        lr_image = transforms.Resize((64, 64))(lr_image)
+        return image, caption, lr_image
 
 def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
     class_guidance = 4.5
@@ -99,7 +102,6 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Ima
 def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, img_labels = None) -> Image:
     class_guidance = 4.5
     seed = 10
-    print("train",labels.shape)
     out, _ = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
         num_imgs=labels.shape[0],
@@ -167,13 +169,13 @@ def main(config: ModelConfig) -> None:
 
     if config.use_image_data:
         
-        if not os.path.exists(config.latents_path):
+        if not os.path.exists(dataconfig.lr_latent_path):
             transform = transforms.Compose([
                 transforms.Resize((256, 256)),
             ])
             
-            train_dataset = SR_COCODataset(img_dir="/home/adithya/HSL/test/mml/final_sub/TexTok-DiT/train2017",
-                                ann_file="/home/adithya/HSL/test/mml/final_sub/TexTok-DiT/annotations/captions_train2017.json", 
+            train_dataset = SR_COCODataset(img_dir=dataconfig.img_path,
+                                ann_file=dataconfig.img_ann_path, 
                                 transform=transform)
 
             train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
@@ -221,17 +223,24 @@ def main(config: ModelConfig) -> None:
             y_all = np.concatenate(y_list[1:], axis=0)
             z_all = np.concatenate(z_list[1:], axis=0)
 
-            np.savez(config.latents_path, x_all = x_all, y_all = y_all, z_all = z_all, x_val = x_val, y_val = y_val, z_val = z_val)
+            np.savez(dataconfig.latent_path, x_all = x_all, x_val = x_val)
+            np.savez(dataconfig.text_emb_path, y_all = y_all, y_val = y_val)
+            np.savez(dataconfig.lr_latent_path, z_all = z_all, z_val = z_val)
 
-        latents_file = np.load(config.latents_path)
-        print([(i, latents_file[i].shape) for i in latents_file.files])
-        x_val = torch.from_numpy(latents_file['x_val']).to('cuda')
-        y_val = torch.from_numpy(latents_file['y_val']).to('cuda')
-        z_val = torch.from_numpy(latents_file['z_val']).to('cuda')
+            # np.savez(dataconfig.lr_latent_path, x_all = x_all, y_all = y_all, z_all = z_all, x_val = x_val, y_val = y_val, z_val = z_val)
 
-        x_all = torch.from_numpy(latents_file['x_all'])
-        y_all = torch.from_numpy(latents_file['y_all'])
-        z_all = torch.from_numpy(latents_file['z_all'])
+        img_latent_file = np.load(dataconfig.latent_path)
+        text_emb_file = np.load(dataconfig.text_emb_path)
+        lr_latent_file = np.load(dataconfig.lr_latent_path)
+
+        # print([(i, latents_file[i].shape) for i in latents_file.files])
+        x_val = torch.from_numpy(img_latent_file['x_val']).to('cuda')
+        y_val = torch.from_numpy(text_emb_file['y_val']).to('cuda')
+        z_val = torch.from_numpy(lr_latent_file['z_val']).to('cuda')
+
+        x_all = torch.from_numpy(img_latent_file['x_all'])
+        y_all = torch.from_numpy(text_emb_file['y_all'])
+        z_all = torch.from_numpy(lr_latent_file['z_all'])
     
         dataset = TensorDataset(x_all, y_all, z_all)
         train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
@@ -334,13 +343,12 @@ def main(config: ModelConfig) -> None:
             noise_level = noise_level.float()
             label = y
             img_label = z
-            
-            #print('aaaaaaAAAAAAAAAAAAAAAAAAAAA', y.shape, img_label.shape)
 
             prob = 0.15 # classifier free guidance
-            mask = torch.rand(y.size(0), device=accelerator.device) < prob
-            label[mask] = 0  # OR replacement_vector
-            img_label[mask] = 0
+            mask_txt = torch.rand(y.size(0), device=accelerator.device) < prob
+            mask_img = torch.rand(z.size(0), device=accelerator.device) < prob
+            label[mask_txt] = 0  # OR replacement_vector
+            img_label[mask_img] = 0
 
             if global_step % train_config.save_and_eval_every_iters == 0:
                 accelerator.wait_for_everyone()
@@ -353,7 +361,8 @@ def main(config: ModelConfig) -> None:
                     out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)
-                        accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
+                        # accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
+                        accelerator.log({"eval_img": wandb.Image(out)}, step=global_step)
 
                     opt_unwrapped = accelerator.unwrap_model(optimizer)
                     full_state_dict = {
@@ -379,7 +388,14 @@ def main(config: ModelConfig) -> None:
                 accelerator.log({"train_loss": loss.item()}, step=global_step)
                 accelerator.backward(loss)
                 optimizer.step()
-
+                
+                if global_step % train_config.save_and_eval_every_iters == 0:
+                    if train_config.use_wandb:
+                        if accelerator.is_main_process:
+                            if config.use_titok:
+                                train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                            accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
+                
                 if accelerator.is_main_process:
                     update_ema(ema_model, model, alpha=train_config.alpha)
 
@@ -391,13 +407,13 @@ def main(config: ModelConfig) -> None:
 # notebook_launcher(training_loop)
 if __name__ == "__main__":
     
-    data_config = DataConfig(
-        latent_path="latents.npy", text_emb_path="text_emb.npy", val_path="val_emb.npy"
-    )
+    data_config = DataConfig()
+    denoiser_config = DenoiserConfig(super_res=True)
 
     model_cfg = ModelConfig(
         data_config=data_config,
-        train_config=TrainConfig(n_epoch=100, batch_size=8),
+        denoiser_config=denoiser_config,
+        train_config=TrainConfig(),
     )
     
     main(model_cfg)

@@ -174,7 +174,8 @@ class DiffusionGenerator1D:
         # print(f'generate func - {x_t.shape}, {seeds}, {labels.shape}') #should be of the shape B x 1 x 32 ?
 
         labels = torch.cat([labels, torch.zeros_like(labels)])
-        img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)])
+        if img_labels is not None:
+            img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
         self.model.eval()
 
         x0_pred_prev = None
@@ -206,10 +207,8 @@ class DiffusionGenerator1D:
 
         pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
+        
         if LTDConfig.use_titok:
-            #get the indices
-            # quantized_states, codebook_indices, codebook_loss = self.tokenizer.quantize(pred_img_tokens)
-            print(pred_img_tokens.shape)
             pred_img_tokens = pred_img_tokens.permute(0,2,1)
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
         else:
@@ -223,7 +222,7 @@ class DiffusionGenerator1D:
             torch.cat([noisy_latent, noisy_latent]),
             noises.to(self.device, self.model_dtype),
             labels.to(self.device, self.model_dtype),
-            img_labels.to(self.device, self.model_dtype)
+            img_labels
         )
         x0_pred = self.apply_classifier_free_guidance(x0_pred, num_imgs, class_guidance)
         return x0_pred
@@ -269,7 +268,7 @@ def encode_text(label, model):
 
 
 class DiffusionTransformer:
-    # NOTE: Used only for eval!?
+    # NOTE: Used only for eval!
     def __init__(self, cfg: LTDConfig):
         denoiser = Denoiser(**asdict(cfg.denoiser_cfg))
         denoiser = denoiser.to(cfg.denoiser_load.dtype)
@@ -297,7 +296,6 @@ class DiffusionTransformer:
                                                  cfg.denoiser_load.dtype)
         elif cfg.use_titok:
             print('Using Titok!')
-            # titok = TiTok(cfg.titok_cfg, device).to(device)
             titok = TiTok.from_pretrained("yucornetto/tokenizer_titok_l32_imagenet").to(device)
             self.diffuser = DiffusionGenerator1D(denoiser,
                                                  titok,
@@ -315,7 +313,6 @@ class DiffusionTransformer:
 
         cur_prompts = [prompt] * num_imgs
         labels = encode_text(cur_prompts, self.clip_model)
-        # labels = self.clip_preprocess(text=cur_prompts).input_ids.to(device)
         
         out, out_latent = self.diffuser.generate(
             prompts=cur_prompts,

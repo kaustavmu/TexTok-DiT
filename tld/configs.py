@@ -23,14 +23,14 @@ class DenoiserConfig:
     seq_len: int = 32  # number of tokens
     noise_embed_dims: int = 256
     patch_size: int = 1  # diffusion patch size
-    embed_dim: int = 384  # DiT hidden dimension
+    embed_dim: int = 128  # DiT hidden dimension 
     dropout: float = 0
     n_layers: int = 3  # DiT layer count
     text_emb_size: int = 512  # CLIP embedding size
     n_channels: int = 12  # Latent token dimension
     mlp_multiplier: int = 4
     image_emb_size: int | None = 768
-    super_res: bool = True
+    super_res: bool = False
 
 @dataclass
 class DenoiserLoad:
@@ -64,13 +64,16 @@ class ClipConfig:
 @dataclass
 class DataConfig:
     """where is the latent data stored"""
-    latent_path: str  
-    text_emb_path: str
-    val_path: str
+    latent_path: str = "preprocess_img.npz"
+    text_emb_path: str = "preprocess_txt.npz"
+    lr_latent_path: str = "preprocess_lr.npz"
+    val_path: str = ""
+    img_path: str = "/home/tchoudha/coco2017/train2017"
+    img_ann_path: str = "/home/tchoudha/coco2017/annotations/captions_train2017.json"
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 8 
+    batch_size: int = 64
     lr: float = 3e-4
     n_epoch: int = 100
     alpha: float = 0.999
@@ -79,7 +82,7 @@ class TrainConfig:
     beta_a: float = 1  
     beta_b: float = 2.5
     save_and_eval_every_iters: int = 200
-    run_id: str = "second-run"
+    run_id: str = "sr-run"
     model_name: str = "checkpoints.pt"
     compile: bool = True
     save_model: bool = True
@@ -111,7 +114,6 @@ class ModelConfig:
     use_textok: bool = False
     use_titok: bool = True
     use_image_data: bool = True
-    latents_path: str = "/home/adithya/HSL/test/mml/final_sub/TexTok-DiT/preprocess.npz"
 
 if __name__=='__main__':
     cfg = DenoiserConfig()
