@@ -81,7 +81,6 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Ima
 def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int) -> Image:
     class_guidance = 4.5
     seed = 10
-    print("train",labels.shape)
     out, _ = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
         num_imgs=1,
@@ -146,7 +145,7 @@ def main(config: ModelConfig) -> None:
                             transform=transform)
         
         train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
-        train_loader = DataLoader(val_dataset, batch_size=train_config.batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=train_config.batch_size, shuffle=True)
 
         clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(accelerator.device)
         clip_preprocess = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
@@ -257,7 +256,8 @@ def main(config: ModelConfig) -> None:
                     out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)
-                        accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
+                        # accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
+                        accelerator.log({"eval_img": wandb.Image(out)}, step=global_step)
 
                     opt_unwrapped = accelerator.unwrap_model(optimizer)
                     full_state_dict = {
@@ -283,6 +283,14 @@ def main(config: ModelConfig) -> None:
                 accelerator.log({"train_loss": loss.item()}, step=global_step)
                 accelerator.backward(loss)
                 optimizer.step()
+
+                #log one train 
+                # image
+                if train_config.use_wandb:
+                    if accelerator.is_main_process:
+                        if config.use_titok:
+                            train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                        accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
 
                 if accelerator.is_main_process:
                     update_ema(ema_model, model, alpha=train_config.alpha)
