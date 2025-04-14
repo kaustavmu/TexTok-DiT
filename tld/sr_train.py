@@ -38,11 +38,14 @@ import requests
 import pdb
 
 class COCODataset(torch.utils.data.Dataset):
-    def __init__(self, img_dir, ann_file, transform=None):
+    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4):
         self.coco = COCO(ann_file)
         self.img_dir = img_dir
-        self.transform = transform
+        self.transform = transforms.Compose([
+                transforms.Resize((hr_size//scale_factor, hr_size//scale_factor)),
+            ])
         self.img_ids = list(self.coco.imgs.keys())
+        self.hr_size = hr_size
 
     def __len__(self):
         return len(self.img_ids)
@@ -55,12 +58,11 @@ class COCODataset(torch.utils.data.Dataset):
         
         img_info = self.coco.loadImgs(img_id)[0]
         img_path = f"{self.img_dir}/{img_info['file_name']}"
-        image = PIL.Image.open(img_path).convert('RGB')
-        image = torch.from_numpy(np.array(image).astype(np.float32)).permute(2, 0, 1) / 255.0
-        if self.transform:
-            image = self.transform(image)
+        image = PIL.Image.open(img_path).convert('RGB').resize((self.hr_size,self.hr_size))
+        image = torch.from_numpy(np.array(image).astype(np.float32)).permute(2, 0, 1) / 255.0 # the hr image
+        image_lr = self.transform(image)
         
-        return image, caption
+        return image, caption, image_lr
 
     def __getitem__(self, idx):
         image, caption = self._process(idx)
@@ -68,15 +70,12 @@ class COCODataset(torch.utils.data.Dataset):
         return image, caption
 
 class SR_COCODataset(COCODataset):
-    def __init__(self, img_dir, ann_file, transform = None):
-        super().__init__(img_dir, ann_file, transform)
+    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4):
+        super().__init__(img_dir, ann_file, hr_size, scale_factor)
 
     def __getitem__(self, idx):
-        image, caption = self._process(idx)
-        #TODO: add LR image
-        lr_image = image.clone()
-        # Resize to 64x64
-        lr_image = transforms.Resize((64, 64))(lr_image)
+        image, caption,lr_image = self._process(idx)
+        breakpoint()
         return image, caption, lr_image
 
 def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
@@ -169,14 +168,14 @@ def main(config: ModelConfig) -> None:
 
     if config.use_image_data:
         
-        if not os.path.exists(dataconfig.lr_latent_path):
-            transform = transforms.Compose([
-                transforms.Resize((256, 256)),
-            ])
+        # if not os.path.exists(dataconfig.lr_latent_path):
+        if True:
+            # transform = transforms.Compose([
+            #     transforms.Resize((256, 256)),
+            # ])
             
             train_dataset = SR_COCODataset(img_dir=dataconfig.img_path,
-                                ann_file=dataconfig.img_ann_path, 
-                                transform=transform)
+                                ann_file=dataconfig.img_ann_path, )
 
             train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
 
