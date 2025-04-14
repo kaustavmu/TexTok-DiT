@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 
 from tld.denoiser import Denoiser
-from BSRGAN.utils import utils_blindsr as blindsr
+from bsrgan_utils import utils_blindsr as blindsr
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
