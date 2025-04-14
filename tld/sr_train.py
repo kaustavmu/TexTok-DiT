@@ -9,6 +9,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 import wandb
+import cv2 as cv
 from accelerate import Accelerator
 from diffusers import AutoencoderKL
 from transformers import CLIPProcessor, CLIPModel
@@ -20,7 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 
 from tld.denoiser import Denoiser
-
+from BSRGAN.utils import utils_blindsr as blindsr
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
@@ -38,7 +39,7 @@ import requests
 import pdb
 
 class COCODataset(torch.utils.data.Dataset):
-    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4):
+    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4, bsr_mode:bool = False):
         self.coco = COCO(ann_file)
         self.img_dir = img_dir
         self.transform = transforms.Compose([
@@ -46,6 +47,8 @@ class COCODataset(torch.utils.data.Dataset):
             ])
         self.img_ids = list(self.coco.imgs.keys())
         self.hr_size = hr_size
+        self.bsr_mode = bsr_mode
+        self.scale_factor = scale_factor
 
     def __len__(self):
         return len(self.img_ids)
@@ -59,8 +62,17 @@ class COCODataset(torch.utils.data.Dataset):
         img_info = self.coco.loadImgs(img_id)[0]
         img_path = f"{self.img_dir}/{img_info['file_name']}"
         image = PIL.Image.open(img_path).convert('RGB').resize((self.hr_size,self.hr_size))
-        image = torch.from_numpy(np.array(image).astype(np.float32)).permute(2, 0, 1) / 255.0 # the hr image
-        image_lr = self.transform(image)
+
+        #bsr degradations
+        if self.bsr_mode:
+            image = np.array(image).astype(np.float32)/255 # hr image as numpy
+            image_lr, image = blindsr.degradation_bsrgan_plus_nopatch(image, sf=self.scale_factor, shuffle_prob=0.1, use_sharp=True) 
+            # convert to tensors
+            image = torch.from_numpy(image).permute(2,0,1)
+            image_lr = torch.from_numpy(image_lr).permute(2,0,1)
+        else:
+            image = torch.from_numpy(np.array(image).astype(np.float32)).permute(2, 0, 1) / 255.0 # the hr image
+            image_lr = self.transform(image)
         
         return image, caption, image_lr
 
@@ -70,12 +82,11 @@ class COCODataset(torch.utils.data.Dataset):
         return image, caption
 
 class SR_COCODataset(COCODataset):
-    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4):
-        super().__init__(img_dir, ann_file, hr_size, scale_factor)
+    def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4, bsr_mode:bool=False):
+        super().__init__(img_dir, ann_file, hr_size, scale_factor, bsr_mode)
 
     def __getitem__(self, idx):
         image, caption,lr_image = self._process(idx)
-        breakpoint()
         return image, caption, lr_image
 
 def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
@@ -168,14 +179,14 @@ def main(config: ModelConfig) -> None:
 
     if config.use_image_data:
         
-        # if not os.path.exists(dataconfig.lr_latent_path):
-        if True:
+        if not os.path.exists(dataconfig.lr_latent_path):
+        # if True:
             # transform = transforms.Compose([
             #     transforms.Resize((256, 256)),
             # ])
             
             train_dataset = SR_COCODataset(img_dir=dataconfig.img_path,
-                                ann_file=dataconfig.img_ann_path, )
+                                ann_file=dataconfig.img_ann_path,bsr_mode=True)
 
             train_loader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
 
@@ -412,7 +423,7 @@ if __name__ == "__main__":
     model_cfg = ModelConfig(
         data_config=data_config,
         denoiser_config=denoiser_config,
-        train_config=TrainConfig(),
+        train_config=TrainConfig(batch_size=8),
     )
     
     main(model_cfg)
