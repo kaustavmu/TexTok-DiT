@@ -5,10 +5,10 @@ from einops.layers.torch import Rearrange
 from torch import nn
 
 from tld.transformer_blocks import DecoderBlock, MLPSepConv, SinusoidalEmbedding, MLP
-from configs import DenoiserConfig
+from configs import Denoiser1DConfig
 import pdb
 
-class DenoiserTransBlock(nn.Module):
+class DenoiserTransBlock1D(nn.Module):
     def __init__(
         self,
         patch_size: int,
@@ -67,7 +67,7 @@ class DenoiserTransBlock(nn.Module):
         return self.out_proj(x)
 
 
-class Denoiser(nn.Module):
+class Denoiser1D(nn.Module):
     def __init__(
         self,
         seq_len: int,
@@ -97,7 +97,7 @@ class Denoiser(nn.Module):
             nn.Linear(self.embed_dim, self.embed_dim),
         )
 
-        self.denoiser_trans_block = DenoiserTransBlock(patch_size, seq_len, embed_dim, dropout, n_layers, mlp_multiplier, n_channels)
+        self.denoiser_trans_block = DenoiserTransBlock1D(patch_size, seq_len, embed_dim, dropout, n_layers, mlp_multiplier, n_channels)
         self.norm = nn.LayerNorm(self.embed_dim)
         self.label_proj = nn.Linear(text_emb_size, self.embed_dim)
         self.image_proj = nn.Linear(2*image_emb_size, self.embed_dim)
@@ -122,7 +122,7 @@ class Denoiser(nn.Module):
 
 if __name__ == "__main__":
     # Load configuration
-    cfg = DenoiserConfig()
+    cfg = Denoiser1DConfig()
 
     print(cfg)
     # Define dummy inputs
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     image = torch.randn(batch_size*2, cfg.image_emb_size)
 
     # Initialize the Denoiser model
-    model = Denoiser(
+    model = Denoiser1D(
         seq_len=num_tokens,
         noise_embed_dims=cfg.noise_embed_dims,
         patch_size=cfg.patch_size,

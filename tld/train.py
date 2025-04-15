@@ -19,7 +19,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 
-from tld.denoiser import Denoiser
+from tld.denoiser import Denoiser1D
 
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
@@ -171,7 +171,7 @@ def main(config: ModelConfig) -> None:
         if accelerator.is_main_process:
             vae = vae.to(accelerator.device)
 
-    model = Denoiser(**asdict(denoiser_config))
+    model = Denoiser1D(**asdict(denoiser_config))
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr)

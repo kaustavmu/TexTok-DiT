@@ -12,7 +12,7 @@ from diffusers import AutoencoderKL
 from torch import Tensor
 from tqdm import tqdm
 
-from tld.denoiser import Denoiser
+from tld.denoiser import Denoiser1D
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
@@ -25,7 +25,7 @@ to_pil = transforms.ToPILImage()
 
 @dataclass
 class DiffusionGenerator:
-    model: Denoiser
+    model: Denoiser1D
     vae: AutoencoderKL
     device: torch.device
     model_dtype: torch.dtype = torch.float32
@@ -133,7 +133,7 @@ class DiffusionGenerator:
 
 @dataclass
 class DiffusionGenerator1D:
-    model: Denoiser
+    model: Denoiser1D
     tokenizer: TexTok
     device: torch.device
     model_dtype: torch.dtype = torch.float32
@@ -270,7 +270,7 @@ def encode_text(label, model):
 class DiffusionTransformer:
     # NOTE: Used only for eval!
     def __init__(self, cfg: LTDConfig):
-        denoiser = Denoiser(**asdict(cfg.denoiser_cfg))
+        denoiser = Denoiser1D(**asdict(cfg.denoiser_cfg))
         denoiser = denoiser.to(cfg.denoiser_load.dtype)
 
         if cfg.denoiser_load.file_url is not None:

@@ -20,13 +20,13 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 
-from tld.denoiser import Denoiser
+from tld.denoiser import Denoiser1D
 from bsrgan_utils import utils_blindsr as blindsr
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
-from tld.diffusion import DiffusionGenerator, DiffusionGenerator1D, encode_text
-from tld.configs import ModelConfig, DataConfig, TrainConfig, DenoiserConfig
+from tld.diffusion import DiffusionGenerator, DiffusionGenerator1D, encode_text, download_file
+from tld.configs import ModelConfig, DataConfig, TrainConfig, Denoiser1DConfig, DenoiserLoad
 
 from pycocotools.coco import COCO
 from datetime import datetime
@@ -265,7 +265,18 @@ def main(config: ModelConfig) -> None:
         train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
 
 
-    model = Denoiser(**asdict(denoiser_config))
+    model = Denoiser1D(**asdict(denoiser_config))
+    #load weights 
+    if config.use_titok:
+        pass
+    elif config.use_textok:
+        pass
+    else:
+        print(f"Downloading model from huggingface")
+        download_file(url='https://huggingface.co/apapiu/small_ldt/resolve/main/state_dict_378000.pth',
+                       filename='state_dict_378000.pth')
+        state_dict = torch.load('state_dict_378000.pth', map_location=torch.device("cuda"))
+        model.load_state_dict(state_dict, strict=False)
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr)
@@ -394,7 +405,7 @@ def main(config: ModelConfig) -> None:
                 
                 pred = model(x_noisy, noise_level.view(-1, 1), label, img_label)
                 loss = loss_fn(pred, x)
-                print(global_step)
+
                 accelerator.log({"train_loss": loss.item()}, step=global_step)
                 accelerator.backward(loss)
                 optimizer.step()
@@ -418,12 +429,12 @@ def main(config: ModelConfig) -> None:
 if __name__ == "__main__":
     
     data_config = DataConfig()
-    denoiser_config = DenoiserConfig(super_res=True)
+    denoiser_config = Denoiser1DConfig(super_res=True)
 
     model_cfg = ModelConfig(
         data_config=data_config,
         denoiser_config=denoiser_config,
-        train_config=TrainConfig(batch_size=8),
+        train_config=TrainConfig(batch_size=128),
     )
     
     main(model_cfg)

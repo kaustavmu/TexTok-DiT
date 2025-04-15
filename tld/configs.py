@@ -19,13 +19,13 @@ class DataDownloadConfig:
     use_wandb: bool = False
 
 @dataclass
-class DenoiserConfig:
+class Denoiser1DConfig:
     seq_len: int = 32  # number of tokens
     noise_embed_dims: int = 256
     patch_size: int = 1  # diffusion patch size
-    embed_dim: int = 128  # DiT hidden dimension 
+    embed_dim: int = 768  # DiT hidden dimension 
     dropout: float = 0
-    n_layers: int = 3  # DiT layer count
+    n_layers: int = 12  # DiT layer count
     text_emb_size: int = 512  # CLIP embedding size
     n_channels: int = 12  # Latent token dimension
     mlp_multiplier: int = 4
@@ -73,15 +73,15 @@ class DataConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 64
+    batch_size: int = 128
     lr: float = 3e-4
-    n_epoch: int = 100
+    n_epoch: int = 250
     alpha: float = 0.999
     from_scratch: bool = True
     ##betas determine the distribution of noise seen during training
     beta_a: float = 1  
     beta_b: float = 2.5
-    save_and_eval_every_iters: int = 200
+    save_and_eval_every_iters: int = 1000
     run_id: str = "sr-run"
     model_name: str = "checkpoints.pt"
     compile: bool = True
@@ -92,7 +92,7 @@ class TrainConfig:
 @dataclass
 class LTDConfig:
     """main config for inference"""
-    denoiser_cfg: DenoiserConfig = field(default_factory=DenoiserConfig)
+    denoiser_cfg: Denoiser1DConfig = field(default_factory=Denoiser1DConfig)
     denoiser_load: DenoiserLoad = field(default_factory=DenoiserLoad)
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
@@ -106,7 +106,7 @@ class ModelConfig:
     """main config for getting data, training and inference"""
     data_config: DataConfig 
     download_config: DataDownloadConfig | None = None
-    denoiser_config: DenoiserConfig = field(default_factory=DenoiserConfig)
+    denoiser_config: Denoiser1DConfig = field(default_factory=Denoiser1DConfig)
     train_config: TrainConfig = field(default_factory=TrainConfig)
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
@@ -116,5 +116,5 @@ class ModelConfig:
     use_image_data: bool = True
 
 if __name__=='__main__':
-    cfg = DenoiserConfig()
+    cfg = Denoiser1DConfig()
     print(cfg)
