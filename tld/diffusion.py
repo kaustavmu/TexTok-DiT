@@ -15,6 +15,7 @@ from tqdm import tqdm
 from tld.denoiser import Denoiser1D, Denoiser
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
+from TitokTokenizer.modeling.tatitok import TaTiTok
 
 from tld.configs import LTDConfig
 
@@ -177,7 +178,8 @@ class DiffusionGenerator1D:
 
         x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed) #change to init tokens?
         # print(f'generate func - {x_t.shape}, {seeds}, {labels.shape}') #should be of the shape B x 1 x 32 ?
-
+        
+        original_labels = copy.deepcopy(labels)
         labels = torch.cat([labels, torch.zeros_like(labels)])
         if img_labels is not None:
             img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
@@ -216,6 +218,9 @@ class DiffusionGenerator1D:
         if LTDConfig.use_titok:
             pred_img_tokens = pred_img_tokens.permute(0,2,1)
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
+        elif LTDConfig.use_tatitok:
+            pred_img_tokens = pred_img_tokens.permute(0,2,1)
+            x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2), original_labels).cpu()
         else:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
         return x0_pred_img, x0_pred
@@ -310,6 +315,15 @@ class DiffusionTransformer:
                                                  titok,
                                                  device,
                                                  cfg.denoiser_load.dtype)
+        
+        elif cfg.use_tatitok:
+            print('Using TaTitok!!!!!!!!!!!!!!!!!!!!!')
+            tatitok = TATiTok.from_pretrained("turkeyju/tokenizer_tatitok_bl32_vae").to(device)
+            self.diffuser = DiffusionGenerator1D(denoiser,
+                                                 tatitok,
+                                                 device,
+                                                 cfg.denoiser_load.dtype) 
+            
         else:
             vae = AutoencoderKL.from_pretrained(cfg.vae_cfg.vae_name, 
             torch_dtype=cfg.vae_cfg.vae_dtype).to(device)
