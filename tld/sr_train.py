@@ -20,13 +20,13 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 
-from tld.denoiser import Denoiser1D
+from tld.denoiser import Denoiser1D, Denoiser
 from bsrgan_utils import utils_blindsr as blindsr
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
 from tld.diffusion import DiffusionGenerator, DiffusionGenerator1D, encode_text, download_file
-from tld.configs import ModelConfig, DataConfig, TrainConfig, Denoiser1DConfig, DenoiserLoad
+from tld.configs import ModelConfig, DataConfig, TrainConfig, Denoiser1DConfig, DenoiserLoad, DenoiserConfig
 
 from pycocotools.coco import COCO
 from datetime import datetime
@@ -89,19 +89,22 @@ class SR_COCODataset(COCODataset):
         image, caption,lr_image = self._process(idx)
         return image, caption, lr_image
 
-def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int) -> Image:
+def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_labels = None) -> Image:
     class_guidance = 4.5
     seed = 10
     
+    #print('evalgen', labels.shape, img_labels.shape)
+
     out, _ = diffuser.generate(
         labels=labels,#torch.repeat_interleave(labels, 2, dim=0),
-        num_imgs=1,
+        num_imgs=labels.shape[0],
         class_guidance=class_guidance,
         seed=seed,
         n_iter=40,
         exponent=1,
         sharp_f=0.1,
-        img_size=img_size
+        img_size=img_size,
+        img_labels = img_labels
     )
 
     out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
@@ -150,9 +153,14 @@ def update_ema(ema_model: nn.Module, model: nn.Module, alpha: float = 0.999):
 
 def main(config: ModelConfig) -> None:
     """main train loop to be used with accelerate"""
-    denoiser_config = config.denoiser_config
+    if config.use_titok or config.use_textok:
+        denoiser_config = config.denoiser_config
+    else:
+        denoiser_config = config.denoiser_old_config
     train_config = config.train_config
     dataconfig = config.data_config
+    
+    print(config.use_titok)
 
     log_with="wandb" if train_config.use_wandb else None
     accelerator = Accelerator(mixed_precision="fp16", log_with=log_with)
@@ -179,7 +187,7 @@ def main(config: ModelConfig) -> None:
 
     if config.use_image_data:
         
-        if not os.path.exists(dataconfig.lr_latent_path):
+        if False and not os.path.exists(dataconfig.lr_latent_path):
         # if True:
             # transform = transforms.Compose([
             #     transforms.Resize((256, 256)),
@@ -202,6 +210,7 @@ def main(config: ModelConfig) -> None:
             
             for x, y, z in tqdm(train_loader):
                 
+
                 x = x.to('cuda') 
                 z = z.to('cuda') 
 
@@ -247,11 +256,14 @@ def main(config: ModelConfig) -> None:
         x_val = torch.from_numpy(img_latent_file['x_val']).to('cuda')
         y_val = torch.from_numpy(text_emb_file['y_val']).to('cuda')
         z_val = torch.from_numpy(lr_latent_file['z_val']).to('cuda')
-
+        
         x_all = torch.from_numpy(img_latent_file['x_all'])
+        x_all = x_all[:-16]
         y_all = torch.from_numpy(text_emb_file['y_all'])
         z_all = torch.from_numpy(lr_latent_file['z_all'])
-    
+        
+        #print(x_all.shape, y_all.shape, z_all.shape)
+
         dataset = TensorDataset(x_all, y_all, z_all)
         train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
     
@@ -265,18 +277,18 @@ def main(config: ModelConfig) -> None:
         train_loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True)
 
 
-    model = Denoiser1D(**asdict(denoiser_config))
     #load weights 
     if config.use_titok:
-        pass
+        model = Denoiser1D(**asdict(denoiser_config))
     elif config.use_textok:
-        pass
+        model = Denoiser1D(**asdict(denoiser_config))
     else:
-        print(f"Downloading model from huggingface")
-        download_file(url='https://huggingface.co/apapiu/small_ldt/resolve/main/state_dict_378000.pth',
-                       filename='state_dict_378000.pth')
-        state_dict = torch.load('state_dict_378000.pth', map_location=torch.device("cuda"))
-        model.load_state_dict(state_dict, strict=False)
+        model = Denoiser(**asdict(denoiser_config))
+        #print(f"Downloading model from huggingface")
+        #download_file(url='https://huggingface.co/apapiu/small_ldt/resolve/main/state_dict_378000.pth',
+        #               filename='state_dict_378000.pth')
+        #state_dict = torch.load('state_dict_378000.pth', map_location=torch.device("cuda"))
+        #model.load_state_dict(state_dict, strict=False)
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr)
@@ -287,9 +299,9 @@ def main(config: ModelConfig) -> None:
 
     if not train_config.from_scratch:
         accelerator.print("Loading Model:")
-        wandb.restore(
-            train_config.model_name, run_path=f"tchoudha-carnegie-mellon-university/TexTok-DiT-tld/runs/{train_config.run_id}", replace=True
-        )
+        #wandb.restore(
+        #    train_config.model_name, run_path=f"kaustavmu/TiTok/runs/{train_config.run_id}", replace=True, root="/home/"
+        #)
         full_state_dict = torch.load(train_config.model_name)
         model.load_state_dict(full_state_dict["model_ema"])
         optimizer.load_state_dict(full_state_dict["opt_state"])
@@ -312,6 +324,8 @@ def main(config: ModelConfig) -> None:
 
     accelerator.print(count_parameters(model))
     accelerator.print(count_parameters_per_layer(model))
+    
+    save_model_cnt = 0
 
     ### Train:
     for i in range(1, train_config.n_epoch + 1):
@@ -348,6 +362,8 @@ def main(config: ModelConfig) -> None:
             else:
                 x = x / config.vae_cfg.vae_scale_factor
             '''
+            #print(x.shape, y.shape, z.shape) 
+            x = x / config.vae_cfg.vae_scale_factor
 
             noise_level = torch.tensor(
                 np.random.beta(train_config.beta_a, train_config.beta_b, len(x)), device=accelerator.device
@@ -365,6 +381,8 @@ def main(config: ModelConfig) -> None:
             label = y
             img_label = z
 
+            #print('cuhs', x_noisy.shape, noise_level.shape, label.shape, img_label.shape)
+
             prob = 0.15 # classifier free guidance
             mask_txt = torch.rand(y.size(0), device=accelerator.device) < prob
             mask_img = torch.rand(z.size(0), device=accelerator.device) < prob
@@ -378,7 +396,7 @@ def main(config: ModelConfig) -> None:
                     if config.use_titok:
                         out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
                     else:
-                        out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size)
+                        out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
                     out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)
@@ -392,17 +410,20 @@ def main(config: ModelConfig) -> None:
                         "global_step": global_step,
                     }
                     if train_config.save_model:
-                        print("saving model at ", )
-                        accelerator.save(full_state_dict, f'checkpoints/{checkpoint_folder}/checkpoint_{global_step}.pt')
-                        if train_config.use_wandb:
-                            wandb.save(train_config.model_name)
+                        save_model_cnt += 1
+                        if save_model_cnt%25 == 0:
+                            print("saving model at ", )
+                            accelerator.save(full_state_dict, f'checkpoints/{checkpoint_folder}/checkpoint_{global_step}.pt')
+                            if train_config.use_wandb:
+                                wandb.save(train_config.model_name)
 
             model.train()
 
             with accelerator.accumulate():
                 ###train loop:
                 optimizer.zero_grad()
-                
+               
+                #print('srtrain', x_noisy.shape, noise_level.view(-1, 1).shape, label.shape, img_label.shape)\
                 pred = model(x_noisy, noise_level.view(-1, 1), label, img_label)
                 loss = loss_fn(pred, x)
 
@@ -415,6 +436,8 @@ def main(config: ModelConfig) -> None:
                         if accelerator.is_main_process:
                             if config.use_titok:
                                 train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                            else:
+                                train_img = eval_gen(diffuser = diffuser, labels=y[0].unsqueeze(0), img_size=denoiser_config.image_size, img_labels = z[0].unsqueeze(0))
                             accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
                 
                 if accelerator.is_main_process:
@@ -430,10 +453,12 @@ if __name__ == "__main__":
     
     data_config = DataConfig()
     denoiser_config = Denoiser1DConfig(super_res=True)
+    denoiser_old_config = DenoiserConfig()
 
     model_cfg = ModelConfig(
         data_config=data_config,
         denoiser_config=denoiser_config,
+        denoiser_old_config=denoiser_old_config,
         train_config=TrainConfig(batch_size=128),
     )
     
