@@ -24,6 +24,7 @@ from tld.denoiser import Denoiser1D, Denoiser
 from bsrgan_utils import utils_blindsr as blindsr
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
+from TitokTokenizer.modeling.tatitok impor TaTiTok
 
 from tld.diffusion import DiffusionGenerator, DiffusionGenerator1D, encode_text, download_file
 from tld.configs import ModelConfig, DataConfig, TrainConfig, Denoiser1DConfig, DenoiserLoad, DenoiserConfig
@@ -153,7 +154,9 @@ def update_ema(ema_model: nn.Module, model: nn.Module, alpha: float = 0.999):
 
 def main(config: ModelConfig) -> None:
     """main train loop to be used with accelerate"""
-    if config.use_titok or config.use_textok:
+    if config.use_tatitok:
+        denoiser_config = config.denoiser_config
+    elif config.use_titok or config.use_textok:
         denoiser_config = config.denoiser_config
     else:
         denoiser_config = config.denoiser_old_config
@@ -179,6 +182,12 @@ def main(config: ModelConfig) -> None:
         titok = TiTok.from_pretrained("yucornetto/tokenizer_titok_l32_imagenet")
         if accelerator.is_main_process:
             titok = titok.to(accelerator.device)
+    elif config.use_tatitok:
+        tatitok = TATiTok.from_pretrained("turkeyju/tokenizer_tatitok_bl32_vae").to('cuda')
+        tatitok.eval()
+        tatitok.requires_grad_(False)
+        if accelerator.is_main_process:
+            tatitok = tatitok.to(accelerator.device)
     else:
         vae = AutoencoderKL.from_pretrained(config.vae_cfg.vae_name, torch_dtype=config.vae_cfg.vae_dtype)
         if accelerator.is_main_process:
@@ -282,6 +291,8 @@ def main(config: ModelConfig) -> None:
         model = Denoiser1D(**asdict(denoiser_config))
     elif config.use_textok:
         model = Denoiser1D(**asdict(denoiser_config))
+    elif config.use_tatitok:
+        model = Denoiser1D(**asdict(denoiser_config))
     else:
         model = Denoiser(**asdict(denoiser_config))
         #print(f"Downloading model from huggingface")
@@ -312,6 +323,8 @@ def main(config: ModelConfig) -> None:
     if accelerator.is_local_main_process:
         ema_model = copy.deepcopy(model).to(accelerator.device)
         if config.use_titok:
+            diffuser = DiffusionGenerator1D(ema_model, titok, accelerator.device, torch.float32)
+        elif config.use_tatitok:
             diffuser = DiffusionGenerator1D(ema_model, titok, accelerator.device, torch.float32)
         else:
             diffuser = DiffusionGenerator(ema_model, vae, accelerator.device, torch.float32)
@@ -363,7 +376,6 @@ def main(config: ModelConfig) -> None:
                 x = x / config.vae_cfg.vae_scale_factor
             '''
             #print(x.shape, y.shape, z.shape) 
-            x = x / config.vae_cfg.vae_scale_factor
 
             noise_level = torch.tensor(
                 np.random.beta(train_config.beta_a, train_config.beta_b, len(x)), device=accelerator.device
@@ -371,9 +383,10 @@ def main(config: ModelConfig) -> None:
             signal_level = 1 - noise_level
             noise = torch.randn_like(x)
             
-            if config.use_titok:
+            if config.use_titok or config.use_tatitok:
                 x_noisy = noise_level.view(-1, 1, 1) * noise + signal_level.view(-1, 1, 1) * x
             else:
+                x = x / config.vae_cfg.vae_scale_factor
                 x_noisy = noise_level.view(-1, 1, 1, 1) * noise + signal_level.view(-1, 1, 1, 1) * x
             
             x_noisy = x_noisy.float()
@@ -393,7 +406,7 @@ def main(config: ModelConfig) -> None:
                 accelerator.wait_for_everyone()
                 if accelerator.is_main_process:
                     ##eval and saving:
-                    if config.use_titok:
+                    if config.use_titok or config.use_tatitok:
                         out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
                     else:
                         out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
@@ -434,7 +447,7 @@ def main(config: ModelConfig) -> None:
                 if global_step % train_config.save_and_eval_every_iters == 0:
                     if train_config.use_wandb:
                         if accelerator.is_main_process:
-                            if config.use_titok:
+                            if config.use_titok or config.use_tatitok:
                                 train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
                             else:
                                 train_img = eval_gen(diffuser = diffuser, labels=y[0].unsqueeze(0), img_size=denoiser_config.image_size, img_labels = z[0].unsqueeze(0))
