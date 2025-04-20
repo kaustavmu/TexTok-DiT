@@ -19,6 +19,20 @@ class DataDownloadConfig:
     use_wandb: bool = False
 
 @dataclass
+class DenoiserConfig:
+    image_size: int = 32
+    noise_embed_dims: int = 256
+    patch_size: int = 2
+    embed_dim: int = 768
+    dropout: float = 0
+    n_layers: int = 12
+    text_emb_size: int = 512
+    image_emb_size: int = 768
+    n_channels: int = 4 
+    mlp_multiplier: int = 4
+    super_res: bool = True
+
+@dataclass
 class Denoiser1DConfig:
     seq_len: int = 32  # number of tokens
     noise_embed_dims: int = 256
@@ -30,7 +44,7 @@ class Denoiser1DConfig:
     n_channels: int = 12  # Latent token dimension
     mlp_multiplier: int = 4
     image_emb_size: int | None = 768
-    super_res: bool = False
+    super_res: bool = True
 
 @dataclass
 class DenoiserLoad:
@@ -64,16 +78,16 @@ class ClipConfig:
 @dataclass
 class DataConfig:
     """where is the latent data stored"""
-    latent_path: str = "preprocess_img.npz"
+    latent_path: str = "preprocess_vae.npz"
     text_emb_path: str = "preprocess_txt.npz"
     lr_latent_path: str = "preprocess_lr.npz"
     val_path: str = ""
-    img_path: str = "/home/tchoudha/coco2017/train2017"
-    img_ann_path: str = "/home/tchoudha/coco2017/annotations/captions_train2017.json"
+    img_path: str = "/home/ubuntu/train2017"
+    img_ann_path: str = "/home/ubuntu/annotations/captions_train2017.json"
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 128
+    batch_size: int = 32
     lr: float = 3e-4
     n_epoch: int = 250
     alpha: float = 0.999
@@ -82,8 +96,9 @@ class TrainConfig:
     beta_a: float = 1  
     beta_b: float = 2.5
     save_and_eval_every_iters: int = 1000
-    run_id: str = "sr-run"
-    model_name: str = "checkpoints.pt"
+    run_id: str = "tsbs6ngk"
+    model_name: str = "/home/ubuntu/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
+    #model_name: str = "checkpoint.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True
@@ -93,27 +108,29 @@ class TrainConfig:
 class LTDConfig:
     """main config for inference"""
     denoiser_cfg: Denoiser1DConfig = field(default_factory=Denoiser1DConfig)
+    denoiser_old_cfg: DenoiserConfig = field(default_factory=DenoiserConfig)
     denoiser_load: DenoiserLoad = field(default_factory=DenoiserLoad)
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
     use_textok: bool = False
-    use_titok: bool = True
-
-
+    use_titok: bool = False
+    
 @dataclass
 class ModelConfig:
     """main config for getting data, training and inference"""
     data_config: DataConfig 
     download_config: DataDownloadConfig | None = None
     denoiser_config: Denoiser1DConfig = field(default_factory=Denoiser1DConfig)
+    denoiser_old_config: DenoiserConfig = field(default_factory=DenoiserConfig)
     train_config: TrainConfig = field(default_factory=TrainConfig)
     vae_cfg: VaeConfig = field(default_factory=VaeConfig)
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
     use_textok: bool = False
-    use_titok: bool = True
+    use_titok: bool = False
     use_image_data: bool = True
+    latents_path: str = "/home/ubuntu/TexTok-DiT/preprocess.npz"
 
 if __name__=='__main__':
     cfg = Denoiser1DConfig()

@@ -12,7 +12,7 @@ from diffusers import AutoencoderKL
 from torch import Tensor
 from tqdm import tqdm
 
-from tld.denoiser import Denoiser1D
+from tld.denoiser import Denoiser1D, Denoiser
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
 
@@ -25,7 +25,7 @@ to_pil = transforms.ToPILImage()
 
 @dataclass
 class DiffusionGenerator:
-    model: Denoiser1D
+    model: Denoiser
     vae: AutoencoderKL
     device: torch.device
     model_dtype: torch.dtype = torch.float32
@@ -35,7 +35,7 @@ class DiffusionGenerator:
         self,
         labels: Tensor,  # embeddings to condition on
         n_iter: int = 30,
-        num_imgs: int = 16,
+        num_imgs: int = 32,
         class_guidance: float = 3,
         seed: int = 10,
         scale_factor: int = 8,  # latent scaling before decoding - should be ~ std of latent space
@@ -46,6 +46,7 @@ class DiffusionGenerator:
         seeds: Tensor | None = None,
         noise_levels=None,
         use_ddpm_plus: bool = True,
+        img_labels = None,
     ):
         """Generate images via reverse diffusion.
         if use_ddpm_plus=True uses Algorithm 2 DPM-Solver++(2M) here: https://arxiv.org/pdf/2211.01095.pdf
@@ -61,6 +62,7 @@ class DiffusionGenerator:
             rs = [hs[i - 1] / hs[i] for i in range(1, len(hs))]
 
         x_t = self.initialize_image(seeds, num_imgs, img_size, seed)
+        #print(x_t.shape)
 
         labels = torch.cat([labels, torch.zeros_like(labels)])
         img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)])
@@ -71,7 +73,7 @@ class DiffusionGenerator:
         for i in tqdm(range(len(noise_levels) - 1)):
             curr_noise, next_noise = noise_levels[i], noise_levels[i + 1]
             
-            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance)
+            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels = img_labels)
 
             if x0_pred_prev is None:
                 x_t = ((curr_noise - next_noise) * x0_pred + next_noise * x_t) / curr_noise
@@ -87,7 +89,7 @@ class DiffusionGenerator:
 
             x0_pred_prev = x0_pred
 
-        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance)
+        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels)
 
         # shifting latents works a bit like an image editor:
         x0_pred[:, 3, :, :] += sharp_f
@@ -99,6 +101,7 @@ class DiffusionGenerator:
     def pred_image(self, noisy_image, labels, noise_level, class_guidance, img_labels):
         num_imgs = noisy_image.size(0)
         noises = torch.full((2 * num_imgs, 1), noise_level)
+        #print('duh', noises.shape)
         x0_pred = self.model(
             torch.cat([noisy_image, noisy_image]),
             noises.to(self.device, self.model_dtype),
@@ -113,7 +116,7 @@ class DiffusionGenerator:
         if seeds is None:
             generator = torch.Generator(device=self.device)
             generator.manual_seed(seed)
-            return torch.randn(
+            res = torch.randn(
                 num_imgs,
                 self.model.n_channels,
                 img_size,
@@ -122,6 +125,8 @@ class DiffusionGenerator:
                 device=self.device,
                 generator=generator,
             )
+            #print(num_imgs, self.model.n_channels, img_size, res.shape)
+            return res
         else:
             return seeds.to(self.device, self.model_dtype)
 
@@ -218,6 +223,8 @@ class DiffusionGenerator1D:
     def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None):
         num_imgs = noisy_latent.size(0)
         noises = torch.full((2 * num_imgs, 1), noise_level) # noiselevel - timestep??
+        #print('duhhhhhhh', noises.shape)
+
         x0_pred = self.model(
             torch.cat([noisy_latent, noisy_latent]),
             noises.to(self.device, self.model_dtype),
@@ -232,7 +239,7 @@ class DiffusionGenerator1D:
         if seeds is None:
             generator = torch.Generator(device=self.device)
             generator.manual_seed(seed)
-            return torch.randn(
+            res = torch.randn(
                 num_imgs,
                 self.model.n_channels,
                 n_tokens,
@@ -240,6 +247,8 @@ class DiffusionGenerator1D:
                 device=self.device,
                 generator=generator,
             )
+            #print(num_imgs, self.model.n_channels, n_tokens, res.shape)
+            return res
         else:
             return seeds.to(self.device, self.model_dtype)
 
