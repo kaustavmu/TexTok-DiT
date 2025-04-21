@@ -131,8 +131,11 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, l
         n_tokens=n_tokens,
         img_labels=img_labels
     )
-
-    out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
+    if labels_detokenizer is not None: #using tatitok
+        out = (torch.clamp(out, 0.0, 1.0)* 255.0).to(dtype=torch.uint8)
+        out = to_pil((vutils.make_grid(out, nrow=8, padding=4)))
+    else:
+        out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
     out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
 
     return out
@@ -319,18 +322,35 @@ def main(config: ModelConfig) -> None:
     # if train_config.compile:
     #     accelerator.print("Compiling model:")
     #     model = torch.compile(model)
+    # if train_config.use_wandb:
+    #     accelerator.init_trackers(project_name="TiTok", config=asdict(config))
 
     if not train_config.from_scratch:
         accelerator.print("Loading Model:")
-        wandb.restore(
-           train_config.model_name, run_path=f"tchoudha-carnegie-mellon-university/TiTok/runs/{train_config.run_id}", replace=True, root="/home/"
-        )
+        
+        # wandb.restore(
+        #    train_config.model_name, run_path=f"tchoudha-carnegie-mellon-university/TiTok/runs/{train_config.run_id}", replace=True #, root="/home/"
+        # )
         full_state_dict = torch.load(train_config.model_name)
         model.load_state_dict(full_state_dict["model_ema"])
         optimizer.load_state_dict(full_state_dict["opt_state"])
         global_step = full_state_dict["global_step"]
+
+        # Resume the wandb run
+        accelerator.init_trackers(
+            project_name="TiTok",
+            config=vars(train_config),
+            init_kwargs={
+                "wandb": {
+                    "id": train_config.run_id,
+                    "resume": "must",
+                    "name": train_config.run_name,  # optional
+                }
+            }
+        )
     else:
         global_step = 0
+        accelerator.init_trackers(project_name="TiTok", config=asdict(config))
 
     if accelerator.is_local_main_process:
         ema_model = copy.deepcopy(model).to(accelerator.device)
@@ -343,9 +363,6 @@ def main(config: ModelConfig) -> None:
 
     accelerator.print("model prep")
     model, train_loader, optimizer = accelerator.prepare(model, train_loader, optimizer)
-
-    if train_config.use_wandb:
-        accelerator.init_trackers(project_name="TiTok", config=asdict(config))
 
     accelerator.print(count_parameters(model))
     accelerator.print(count_parameters_per_layer(model))

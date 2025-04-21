@@ -209,10 +209,11 @@ class DiffusionGenerator1D:
         x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels)
 
         # shifting latents works a bit like an image editor:
-        x0_pred[:, 3, : ] += sharp_f
-        x0_pred[:, 0, : ] += bright_f
+        # x0_pred[:, 3, : ] += sharp_f
+        # x0_pred[:, 0, : ] += bright_f
 
-        pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
+        # pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
+        pred_img_tokens = x0_pred.to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
         
         if LTDConfig.use_titok:
