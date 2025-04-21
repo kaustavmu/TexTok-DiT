@@ -15,10 +15,10 @@ from tqdm import tqdm
 from tld.denoiser import Denoiser1D, Denoiser
 from tld.tokenizer import TexTok
 from TitokTokenizer.modeling.titok import TiTok
-from TitokTokenizer.modeling.tatitok import TaTiTok
+from TitokTokenizer.modeling.tatitok import TATiTok
 
 from tld.configs import LTDConfig
-
+import copy
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 to_pil = transforms.ToPILImage()
@@ -162,6 +162,7 @@ class DiffusionGenerator1D:
         noise_levels=None,
         use_ddpm_plus: bool = True,
         img_labels = None,
+        labels_detokenizer = None,
     ):
         """Generate images via reverse diffusion.
         if use_ddpm_plus=True uses Algorithm 2 DPM-Solver++(2M) here: https://arxiv.org/pdf/2211.01095.pdf
@@ -179,7 +180,6 @@ class DiffusionGenerator1D:
         x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed) #change to init tokens?
         # print(f'generate func - {x_t.shape}, {seeds}, {labels.shape}') #should be of the shape B x 1 x 32 ?
         
-        original_labels = copy.deepcopy(labels)
         labels = torch.cat([labels, torch.zeros_like(labels)])
         if img_labels is not None:
             img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
@@ -220,7 +220,7 @@ class DiffusionGenerator1D:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
         elif LTDConfig.use_tatitok:
             pred_img_tokens = pred_img_tokens.permute(0,2,1)
-            x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2), original_labels).cpu()
+            x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2), labels_detokenizer).cpu()
         else:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
         return x0_pred_img, x0_pred

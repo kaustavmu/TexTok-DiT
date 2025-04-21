@@ -78,16 +78,17 @@ class ClipConfig:
 @dataclass
 class DataConfig:
     """where is the latent data stored"""
-    latent_path: str = "preprocess_vae.npz"
-    text_emb_path: str = "preprocess_txt.npz"
+    latent_path: str = "preprocess_tatitok.npz"
+    text_emb_path: str = "preprocess_txt.npz" 
+    detokenizer_text_emb_path: str = "preprocess_tatitok_txt.npz"
     lr_latent_path: str = "preprocess_lr.npz"
     val_path: str = ""
-    img_path: str = "/home/ubuntu/train2017"
-    img_ann_path: str = "/home/ubuntu/annotations/captions_train2017.json"
+    img_path: str = "/home/tchoudha/coco/train2017"
+    img_ann_path: str = "/home/tchoudha/coco/annotations/captions_train2017.json"
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 32
+    batch_size: int = 128
     lr: float = 3e-4
     n_epoch: int = 250
     alpha: float = 0.999
@@ -97,8 +98,8 @@ class TrainConfig:
     beta_b: float = 2.5
     save_and_eval_every_iters: int = 1000
     run_id: str = "tsbs6ngk"
-    model_name: str = "/home/ubuntu/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
-    #model_name: str = "checkpoint.pt"
+    # model_name: str = "/home/tchoudha/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
+    model_name: str = "checkpoint.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True
@@ -132,7 +133,6 @@ class ModelConfig:
     use_titok: bool = False
     use_tatitok: bool = True
     use_image_data: bool = True
-    latents_path: str = "/home/ubuntu/TexTok-DiT/preprocess.npz"
 
 if __name__=='__main__':
     cfg = Denoiser1DConfig()

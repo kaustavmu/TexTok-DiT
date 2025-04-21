@@ -39,7 +39,7 @@ import requests
 
 import pdb
 #torch seed
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 
 class COCODataset(torch.utils.data.Dataset):
@@ -116,11 +116,12 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_la
 
     return out
 
-def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, img_labels = None) -> Image:
+def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None) -> Image:
     class_guidance = 4.5
     seed = 10
     out, _ = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
+        labels_detokenizer = labels_detokenizer,
         num_imgs=labels.shape[0],
         class_guidance=class_guidance,
         seed=seed,
@@ -263,12 +264,15 @@ def main(config: ModelConfig) -> None:
         text_emb_file = np.load(dataconfig.text_emb_path)
         lr_latent_file = np.load(dataconfig.lr_latent_path)
 
+        if config.use_tatitok:
+            detokenizer_text_emb_file = np.load(dataconfig.detokenizer_text_emb_path)
+
         # print([(i, latents_file[i].shape) for i in latents_file.files])
         x_val = torch.from_numpy(img_latent_file['x_val']).to('cuda')
         z_val = torch.from_numpy(lr_latent_file['z_val']).to('cuda')
         if config.use_tatitok:
             y1_val = torch.from_numpy(text_emb_file['y1_val']).to('cuda')
-            y77_val = torch.from_numpy(text_emb_file['y77_val']).to('cuda')
+            y77_val = torch.from_numpy(detokenizer_text_emb_file['y77_val']).to('cuda')
         else:
             y_val = torch.from_numpy(text_emb_file['y_val']).to('cuda')
         
@@ -276,7 +280,7 @@ def main(config: ModelConfig) -> None:
         z_all = torch.from_numpy(lr_latent_file['z_all'])
         if config.use_tatitok:
             y1_all = torch.from_numpy(text_emb_file['y1_all'])
-            y77_all = torch.from_numpy(text_emb_file['y77_all'])
+            y77_all = torch.from_numpy(detokenizer_text_emb_file['y77_all'])
         else:
             y_all = torch.from_numpy(text_emb_file['y_all'])
         
@@ -318,9 +322,9 @@ def main(config: ModelConfig) -> None:
 
     if not train_config.from_scratch:
         accelerator.print("Loading Model:")
-        #wandb.restore(
-        #    train_config.model_name, run_path=f"kaustavmu/TiTok/runs/{train_config.run_id}", replace=True, root="/home/"
-        #)
+        wandb.restore(
+           train_config.model_name, run_path=f"tchoudha-carnegie-mellon-university/TiTok/runs/{train_config.run_id}", replace=True, root="/home/"
+        )
         full_state_dict = torch.load(train_config.model_name)
         model.load_state_dict(full_state_dict["model_ema"])
         optimizer.load_state_dict(full_state_dict["opt_state"])
@@ -352,9 +356,9 @@ def main(config: ModelConfig) -> None:
     for i in range(1, train_config.n_epoch + 1):
         accelerator.print(f"epoch: {i}")
 
-        for x, y, z in tqdm(train_loader):
+        for x, y1, y77, z in tqdm(train_loader):
             
-            x, y, z = x.to('cuda'), y.to('cuda'), z.to('cuda')
+            x, y1, y77, z = x.to('cuda'), y1.to('cuda'), y77.to('cuda'), z.to('cuda')
             '''
             if config.use_image_data:
                 
@@ -383,10 +387,9 @@ def main(config: ModelConfig) -> None:
             else:
                 x = x / config.vae_cfg.vae_scale_factor
             '''
-            print(x.shape, y.shape, z.shape) 
-            if config.use_tatitok:
-                x = x.squeeze(2)
-                x = x.permute(0, 2, 1)
+            # if config.use_tatitok:
+            #     x = x.squeeze(2)
+            #     x = x.permute(0, 2, 1)
 
             noise_level = torch.tensor(
                 np.random.beta(train_config.beta_a, train_config.beta_b, len(x)), device=accelerator.device
@@ -402,13 +405,13 @@ def main(config: ModelConfig) -> None:
             
             x_noisy = x_noisy.float()
             noise_level = noise_level.float()
-            label = y
+            label = y1
             img_label = z
 
             #print('cuhs', x_noisy.shape, noise_level.shape, label.shape, img_label.shape)
 
             prob = 0.15 # classifier free guidance
-            mask_txt = torch.rand(y.size(0), device=accelerator.device) < prob
+            mask_txt = torch.rand(y1.size(0), device=accelerator.device) < prob
             mask_img = torch.rand(z.size(0), device=accelerator.device) < prob
             label[mask_txt] = 0  # OR replacement_vector
             img_label[mask_img] = 0
@@ -417,8 +420,10 @@ def main(config: ModelConfig) -> None:
                 accelerator.wait_for_everyone()
                 if accelerator.is_main_process:
                     ##eval and saving:
-                    if config.use_titok or config.use_tatitok:
+                    if config.use_titok:
                         out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
+                    if config.use_tatitok:
+                        out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
                     else:
                         out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
                     out.save("img.jpg")
@@ -458,8 +463,17 @@ def main(config: ModelConfig) -> None:
                 if global_step % train_config.save_and_eval_every_iters == 0:
                     if train_config.use_wandb:
                         if accelerator.is_main_process:
-                            if config.use_titok or config.use_tatitok:
+                            if config.use_titok:
                                 train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                            elif config.use_tatitok:
+                                train_img = eval_gen_1D(diffuser=diffuser, labels=y1[0].unsqueeze(0), labels_detokenizer = y77[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
+                                
+                                with torch.no_grad():
+                                    gt_img = tatitok.decode(x[0].unsqueeze(2).permute(0, 2, 1).unsqueeze(0), y77[0].unsqueeze(0))
+                                    gt_img = torch.clamp(gt_img, 0.0, 1.0)
+                                    gt_img = (gt_img * 255.0).permute(0, 2, 3, 1).to("cpu", dtype=torch.uint8).numpy()[0]
+                                    # gt_img = Image.fromarray(gt_img)
+                                    accelerator.log({"gt_img": wandb.Image(gt_img)}, step=global_step)      
                             else:
                                 train_img = eval_gen(diffuser = diffuser, labels=y[0].unsqueeze(0), img_size=denoiser_config.image_size, img_labels = z[0].unsqueeze(0))
                             accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
