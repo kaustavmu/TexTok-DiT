@@ -488,7 +488,22 @@ def main(config: ModelConfig) -> None:
 # args = (config, data_path, val_path)
 # notebook_launcher(training_loop)
 if __name__ == "__main__":
-    
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Train TATiTok model')
+    parser.add_argument('--config', type=str, default='configs_cc12m',
+                        help='Name of config file to use (default: configs_cc12m)')
+    args = parser.parse_args()
+
+    # Dynamically import the specified config file
+    print('Using config:', args.config)
+    config_module = __import__(f'tld.{args.config}', fromlist=['DataConfig', 'Denoiser1DConfig', 'DenoiserConfig', 'TrainConfig'])
+    DataConfig = config_module.DataConfig
+    Denoiser1DConfig = config_module.Denoiser1DConfig
+    DenoiserConfig = config_module.DenoiserConfig
+    TrainConfig = config_module.TrainConfig
+
+
     data_config = DataConfig()
     denoiser_config = Denoiser1DConfig(super_res=True)
     denoiser_old_config = DenoiserConfig()
