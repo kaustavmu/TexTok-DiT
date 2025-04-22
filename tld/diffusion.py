@@ -216,14 +216,13 @@ class DiffusionGenerator1D:
         pred_img_tokens = x0_pred.to(self.model_dtype)
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
         
+        pred_img_tokens = pred_img_tokens.permute(0,2,1)        
         if LTDConfig.use_titok:
-            pred_img_tokens = pred_img_tokens.permute(0,2,1)
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
-        elif LTDConfig.use_tatitok:
-            pred_img_tokens = pred_img_tokens.permute(0,2,1)
+        elif LTDConfig.use_tatitok or LTDConfig.use_textok:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2), labels_detokenizer).cpu()
-        else:
-            x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
+        
+        x0_pred_img = (torch.clamp(x0_pred_img, 0.0, 1.0)* 255.0).to(dtype=torch.uint8).cpu()
         return x0_pred_img, x0_pred
 
     def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None):

@@ -34,13 +34,23 @@ from datetime import datetime
 import os
 
 from transformers import AutoImageProcessor, AutoModel
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import requests
 
 import pdb
 #torch seed
 # torch.manual_seed(0)
 
+def add_text_to_image(img, text):
+        if isinstance(img, torch.Tensor):
+            img = to_pil(img)
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 60)
+        except:
+            font = ImageFont.load_default()
+        draw.text((5, 5), text, fill="white", font=font)
+        return img
 
 class COCODataset(torch.utils.data.Dataset):
     def __init__(self, img_dir, ann_file, hr_size=256, scale_factor=4, bsr_mode:bool = False):
@@ -112,8 +122,7 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_la
     )
 
     out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
-    out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
-
+    # out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
     return out
 
 def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None) -> Image:
@@ -132,13 +141,57 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, l
         img_labels=img_labels
     )
     if labels_detokenizer is not None: #using tatitok
-        out = (torch.clamp(out, 0.0, 1.0)* 255.0).to(dtype=torch.uint8)
+        # out = (torch.clamp(out, 0.0, 1.0)* 255.0).to(dtype=torch.uint8)
         out = to_pil((vutils.make_grid(out, nrow=8, padding=4)))
     else:
         out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
     out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
 
     return out
+
+
+def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, class_guidance = [4.5, 4, 6, 8, 10]) -> Image:
+    seed = 10
+    batch_size = labels.shape[0]
+    text_caption = " GT_truth  |  Pred with guidance : "
+    # Create list to store all generated images
+    generated_imgs = []
+    
+    # Add ground truth image first
+    # gt_img = (torch.clamp(gt_img, 0.0, 1.0) * 255.0).to(dtype=torch.uint8)
+    generated_imgs.append(gt_img)
+    
+    # Generate images for each guidance scale
+    for guidance in class_guidance:
+        out, _ = diffuser.generate(
+            labels=labels,
+            labels_detokenizer=labels_detokenizer,
+            num_imgs=batch_size,
+            class_guidance=guidance,
+            seed=seed,
+            n_iter=40,
+            exponent=1,
+            sharp_f=0.1,
+            n_tokens=n_tokens,
+            img_labels=img_labels
+        )
+        text_caption += f" {guidance}  |  "
+        generated_imgs.append(out)
+
+    # Stack all images horizontally for each sample in batch
+    # Shape becomes [batch_size, num_versions, C, H, W]
+    all_imgs = torch.stack(generated_imgs, dim=1)
+    all_imgs = all_imgs.view(-1, *all_imgs.shape[2:])
+    merged_imgs = vutils.make_grid(all_imgs, nrow=len(class_guidance)+1, padding=4)
+    black_patch = torch.zeros(3, merged_imgs.shape[1], 200)  # (C, H, W)
+    merged_imgs = torch.cat([merged_imgs, black_patch], dim=2)  # concatenate along width
+    merged_imgs = to_pil(merged_imgs)
+    
+    merged_imgs.save(f"eval_guidance_comparison_seed_{seed}_1.png")
+    merged_imgs = add_text_to_image(merged_imgs, text_caption)
+    merged_imgs.save(f"eval_guidance_comparison_seed_{seed}.png")
+    return merged_imgs
+    
 
 def count_parameters(model: nn.Module):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -343,7 +396,7 @@ def main(config: ModelConfig) -> None:
             init_kwargs={
                 "wandb": {
                     "id": train_config.run_id,
-                    "resume": "must",
+                    "resume": "allow",
                     "name": train_config.run_name,  # optional
                 }
             }
@@ -436,14 +489,22 @@ def main(config: ModelConfig) -> None:
             if global_step % train_config.save_and_eval_every_iters == 0:
                 accelerator.wait_for_everyone()
                 if accelerator.is_main_process:
+
+                    vis_images = 8
+                    with torch.no_grad():
+                        # import pdb; pdb.set_trace()
+                        gt_img = tatitok.decode(x_val.unsqueeze(2), y77_val)
+                        gt_img = torch.clamp(gt_img, 0.0, 1.0)
+                        gt_img = (gt_img * 255.0).to(dtype=torch.uint8).to("cpu")
+                    
                     ##eval and saving:
-                    if config.use_titok:
-                        out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
                     if config.use_tatitok:
-                        out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
+                        # out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
+                        out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1_val[0:vis_images], labels_detokenizer = y77_val[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z_val[0:vis_images])
                     else:
                         out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
-                    out.save("img.jpg")
+                    
+                    # out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)
                         # accelerator.log({f"step: {global_step}": wandb.Image("img.jpg")})
@@ -480,20 +541,21 @@ def main(config: ModelConfig) -> None:
                 if global_step % train_config.save_and_eval_every_iters == 0:
                     if train_config.use_wandb:
                         if accelerator.is_main_process:
-                            if config.use_titok:
-                                train_img = eval_gen_1D(diffuser=diffuser, labels=y[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
-                            elif config.use_tatitok:
-                                train_img = eval_gen_1D(diffuser=diffuser, labels=y1[0].unsqueeze(0), labels_detokenizer = y77[0].unsqueeze(0), n_tokens=denoiser_config.seq_len)
-                                
-                                with torch.no_grad():
-                                    gt_img = tatitok.decode(x[0].unsqueeze(2).permute(0, 2, 1).unsqueeze(0), y77[0].unsqueeze(0))
-                                    gt_img = torch.clamp(gt_img, 0.0, 1.0)
-                                    gt_img = (gt_img * 255.0).permute(0, 2, 3, 1).to("cpu", dtype=torch.uint8).numpy()[0]
-                                    # gt_img = Image.fromarray(gt_img)
-                                    accelerator.log({"gt_img": wandb.Image(gt_img)}, step=global_step)      
+                            vis_images = 8
+                            with torch.no_grad():
+                                # import pdb; pdb.set_trace()
+                                gt_img = tatitok.decode(x.unsqueeze(2), y77)
+                                gt_img = torch.clamp(gt_img, 0.0, 1.0)
+                                gt_img = (gt_img * 255.0).to(dtype=torch.uint8).to("cpu")
+                            
+                            ##eval and saving:
+                            if config.use_tatitok:
+                                # out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
+                                out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1[0:vis_images], labels_detokenizer = y77[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z[0:vis_images])
                             else:
-                                train_img = eval_gen(diffuser = diffuser, labels=y[0].unsqueeze(0), img_size=denoiser_config.image_size, img_labels = z[0].unsqueeze(0))
-                            accelerator.log({"train_img": wandb.Image(train_img)}, step=global_step)
+                                out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
+                    
+                            accelerator.log({"train_img": wandb.Image(out)}, step=global_step)
                 
                 if accelerator.is_main_process:
                     update_ema(ema_model, model, alpha=train_config.alpha)
