@@ -54,13 +54,12 @@ class DenoiserTransBlock1D(nn.Module):
 
         self.out_proj = nn.Linear(self.embed_dim, patch_dim)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, repeat=1):
         # Convert input to high-dimensional embedding
         x = self.patch_embedding(x)  # B x seq_len x embed_dim
 
-        pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1)
+        pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1).repeat(1,repeat)
         x = x + self.pos_embed(pos_enc)
-
         for block in self.decoder_blocks:
             x = block(x, cond)
 
@@ -80,7 +79,8 @@ class Denoiser1D(nn.Module):
         mlp_multiplier: int = 4,
         n_channels: int = 4,
         image_emb_size: int = 768,
-        super_res: bool = False
+        super_res: bool = False,
+        image_cond_type:str = 'cross'
     ):
         super().__init__()
 
@@ -102,13 +102,12 @@ class Denoiser1D(nn.Module):
         self.label_proj = nn.Linear(text_emb_size, self.embed_dim)
         self.image_proj = nn.Linear(2*image_emb_size, self.embed_dim)
 
-    def forward(self, x, noise_level, label, image = None):
-
+    def forward(self, x, noise_level, label, image = None, image_cond_type = 'cross'):
         x = x.permute(0, 2, 1)
         noise_level = self.fourier_feats(noise_level).unsqueeze(1)
 
         label = self.label_proj(label).unsqueeze(1)
-        if image != None and self.super_res:
+        if image != None and self.super_res and image_cond_type == 'cross':
             lr_img = self.image_proj(image).unsqueeze(1)
             # print(noise_level.shape, label.shape, lr_img.shape) #[64, 1, 768][64, 1, 768][64, 1, 768]) 
             noise_label_emb = torch.cat([noise_level, label, lr_img], dim=1)  # bs, 2, d
@@ -116,8 +115,13 @@ class Denoiser1D(nn.Module):
             noise_label_emb = torch.cat([noise_level, label], dim=1)  # bs, 2, d
 
         noise_label_emb = self.norm(noise_label_emb)
-        x = self.denoiser_trans_block(x, noise_label_emb) #x: bs, 
-
+        if image_cond_type == 'concat':
+            image = image.permute(0,2,1)
+            x = torch.cat([x, image], dim=1)
+            x = self.denoiser_trans_block(x, noise_label_emb, repeat = 2)
+            x=x[:,:32,:]
+        else:
+            x = self.denoiser_trans_block(x, noise_label_emb) #x: bs, 
         x = x.permute(0, 2, 1)
         return x
 

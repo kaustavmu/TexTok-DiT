@@ -45,6 +45,7 @@ class Denoiser1DConfig:
     mlp_multiplier: int = 4
     image_emb_size: int | None = 768
     super_res: bool = True
+    image_cond_type:str = 'concat'
 
 @dataclass
 class DenoiserLoad:
@@ -54,7 +55,7 @@ class DenoiserLoad:
 
 @dataclass
 class VaeConfig:
-    vae_scale_factor: float = 8
+    vae_scale_factor: float = 1
     vae_name: str = "madebyollin/sdxl-vae-fp16-fix"
     vae_dtype: torch.dtype = torch.float32
 
@@ -83,12 +84,12 @@ class DataConfig:
     detokenizer_text_emb_path: str = "preprocess_tatitok_txt.npz"
     lr_latent_path: str = "preprocess_lr.npz"
     val_path: str = ""
-    img_path: str = "/home/tchoudha/coco/train2017"
-    img_ann_path: str = "/home/tchoudha/coco/annotations/captions_train2017.json"
+    img_path: str = "/data/adithya/train2017"
+    img_ann_path: str = "/home/adithya/HSL/test/mml/final_sub/TexTok-DiT/annotations/captions_train2017.json"
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 128
+    batch_size: int = 8
     lr: float = 3e-4
     n_epoch: int = 250
     alpha: float = 0.999

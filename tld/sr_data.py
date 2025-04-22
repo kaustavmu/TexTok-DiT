@@ -83,13 +83,14 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         y1_list, y77_list = [], []
     else:
         y_list = []
-    
     #x_list = []
 
     print('processing data!')
-    
+    boop = 0
     for x, y, z in tqdm(train_loader):
-        
+        # if boop>100:
+        #     break
+        # boop += 1
         if config.use_tatitok:
             # Process Text
             idxs = clip_tokenizer(y).to('cuda')
@@ -112,17 +113,23 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         
         # Process LR Image
         z = z.to('cuda') 
+        if config.denoiser_config.image_cond_type == 'concat':
+            z = transforms.Resize((x.shape[2], x.shape[3]))(z)
+            z_post = tatitok.encode(x.to('cuda'))[1]
+            z_posterior = tatitok.encode(z.to('cuda'))[1]
+            pooled = z_posterior.sample()[:,:,0,:]
 
-        z -= torch.min(z)
-        z /= torch.max(z)
-        z = dino_processor(images=z, return_tensors="pt").to('cuda')
-    
-        z = dino_model(**z)
-        z = z[0]
+        else:
+            z -= torch.min(z)
+            z /= torch.max(z)
+            z = dino_processor(images=z, return_tensors="pt").to('cuda')
+        
+            z = dino_model(**z)
+            z = z[0]
 
-        cls = z[:, 0]
-        max_pooled = torch.max(z[:, 1:], dim = 1)[0]
-        pooled = torch.cat([cls, max_pooled], dim=1)
+            cls = z[:, 0]
+            max_pooled = torch.max(z[:, 1:], dim = 1)[0]
+            pooled = torch.cat([cls, max_pooled], dim=1)
 
         if config.use_titok:
             x, _ = titok.encode(x)

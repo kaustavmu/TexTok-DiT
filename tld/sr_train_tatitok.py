@@ -125,7 +125,7 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_la
     # out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
     return out
 
-def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None) -> Image:
+def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, image_cond_type:str = 'cross') -> Image:
     class_guidance = 4.5
     seed = 10
     out, _ = diffuser.generate(
@@ -138,7 +138,8 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, l
         exponent=1,
         sharp_f=0.1,
         n_tokens=n_tokens,
-        img_labels=img_labels
+        img_labels=img_labels,
+        image_cond_type=image_cond_type
     )
     if labels_detokenizer is not None: #using tatitok
         # out = (torch.clamp(out, 0.0, 1.0)* 255.0).to(dtype=torch.uint8)
@@ -316,7 +317,7 @@ def main(config: ModelConfig) -> None:
 
             # np.savez(dataconfig.lr_latent_path, x_all = x_all, y_all = y_all, z_all = z_all, x_val = x_val, y_val = y_val, z_val = z_val)
 
-        img_latent_file = np.load(dataconfig.latent_path)
+        img_latent_file = np.load(dataconfig.latent_path) # 8,16,32
         text_emb_file = np.load(dataconfig.text_emb_path)
         lr_latent_file = np.load(dataconfig.lr_latent_path)
 
@@ -477,7 +478,6 @@ def main(config: ModelConfig) -> None:
             noise_level = noise_level.float()
             label = y1
             img_label = z
-
             #print('cuhs', x_noisy.shape, noise_level.shape, label.shape, img_label.shape)
 
             prob = 0.15 # classifier free guidance
@@ -531,9 +531,10 @@ def main(config: ModelConfig) -> None:
                 optimizer.zero_grad()
                
                 #print('srtrain', x_noisy.shape, noise_level.view(-1, 1).shape, label.shape, img_label.shape)\
-                pred = model(x_noisy, noise_level.view(-1, 1), label, img_label)
+                pred = model(x_noisy, noise_level.view(-1, 1), label, img_label, image_cond_type=denoiser_config.image_cond_type)
                 loss = loss_fn(pred, x)
 
+                # breakpoint it he
                 accelerator.log({"train_loss": loss.item()}, step=global_step)
                 accelerator.backward(loss)
                 optimizer.step()

@@ -163,6 +163,7 @@ class DiffusionGenerator1D:
         use_ddpm_plus: bool = True,
         img_labels = None,
         labels_detokenizer = None,
+        image_cond_type:str = 'cross'
     ):
         """Generate images via reverse diffusion.
         if use_ddpm_plus=True uses Algorithm 2 DPM-Solver++(2M) here: https://arxiv.org/pdf/2211.01095.pdf
@@ -179,20 +180,18 @@ class DiffusionGenerator1D:
 
         x_t = self.initialize_image(seeds, num_imgs, n_tokens, seed) #change to init tokens?
         # print(f'generate func - {x_t.shape}, {seeds}, {labels.shape}') #should be of the shape B x 1 x 32 ?
-        
         labels = torch.cat([labels, torch.zeros_like(labels)])
         if img_labels is not None:
             # img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
             #remove classifier free guidance for lr images
             img_labels = torch.cat([img_labels, img_labels]).to(self.device, self.model_dtype)
         self.model.eval()
-
         x0_pred_prev = None
 
         for i in tqdm(range(len(noise_levels) - 1)):
             curr_noise, next_noise = noise_levels[i], noise_levels[i + 1]
 
-            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels=img_labels)
+            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels=img_labels, image_cond_type=image_cond_type)
 
             if x0_pred_prev is None:
                 x_t = ((curr_noise - next_noise) * x0_pred + next_noise * x_t) / curr_noise
@@ -208,9 +207,11 @@ class DiffusionGenerator1D:
 
             x0_pred_prev = x0_pred
 
-        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels)
-
+        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels, image_cond_type=image_cond_type)
+        
         # shifting latents works a bit like an image editor:
+        # x0_pred[:, 3, : ] += sharp_f
+        # x0_pred[:, 0, : ] += bright_f
         # x0_pred[:, 3, : ] += sharp_f
         # x0_pred[:, 0, : ] += bright_f
 
@@ -227,7 +228,7 @@ class DiffusionGenerator1D:
         x0_pred_img = (torch.clamp(x0_pred_img, 0.0, 1.0)* 255.0).to(dtype=torch.uint8).cpu()
         return x0_pred_img, x0_pred
 
-    def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None):
+    def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None, image_cond_type = 'cross'):
         num_imgs = noisy_latent.size(0)
         noises = torch.full((2 * num_imgs, 1), noise_level) # noiselevel - timestep??
         #print('duhhhhhhh', noises.shape)
@@ -236,7 +237,8 @@ class DiffusionGenerator1D:
             torch.cat([noisy_latent, noisy_latent]),
             noises.to(self.device, self.model_dtype),
             labels.to(self.device, self.model_dtype),
-            img_labels
+            img_labels,
+            image_cond_type=image_cond_type
         )
         x0_pred = self.apply_classifier_free_guidance(x0_pred, num_imgs, class_guidance)
         return x0_pred
