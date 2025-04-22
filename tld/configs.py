@@ -101,7 +101,7 @@ class TrainConfig:
     run_id: str = "8jd13a4z"
     run_name: str = "iconic-lake-52"
     # model_name: str = "/home/tchoudha/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
-    model_name: str = "checkpoints/2025-04-20_14-45-49/checkpoint_199000.pt"
+    model_name: str = "/home/adithya/HSL/test/mml/final_sub/TexTok-DiT/tld/checkpoints/checkpoint_tanya.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True

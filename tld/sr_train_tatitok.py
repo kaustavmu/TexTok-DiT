@@ -151,7 +151,7 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, l
     return out
 
 
-def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, class_guidance = [4.5, 4, 6, 8, 10]) -> Image:
+def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, class_guidance = [4.5, 4, 6, 8, 10], image_cond_type:str = 'cross') -> Image:
     seed = 10
     batch_size = labels.shape[0]
     text_caption = " GT_truth  |  Pred with guidance : "
@@ -161,7 +161,6 @@ def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels
     # Add ground truth image first
     # gt_img = (torch.clamp(gt_img, 0.0, 1.0) * 255.0).to(dtype=torch.uint8)
     generated_imgs.append(gt_img)
-    
     # Generate images for each guidance scale
     for guidance in class_guidance:
         out, _ = diffuser.generate(
@@ -174,7 +173,8 @@ def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels
             exponent=1,
             sharp_f=0.1,
             n_tokens=n_tokens,
-            img_labels=img_labels
+            img_labels=img_labels,
+            image_cond_type = image_cond_type
         )
         text_caption += f" {guidance}  |  "
         generated_imgs.append(out)
@@ -184,8 +184,8 @@ def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels
     all_imgs = torch.stack(generated_imgs, dim=1)
     all_imgs = all_imgs.view(-1, *all_imgs.shape[2:])
     merged_imgs = vutils.make_grid(all_imgs, nrow=len(class_guidance)+1, padding=4)
-    black_patch = torch.zeros(3, merged_imgs.shape[1], 200)  # (C, H, W)
-    merged_imgs = torch.cat([merged_imgs, black_patch], dim=2)  # concatenate along width
+    # black_patch = torch.zeros(3, merged_imgs.shape[1], 200)  # (C, H, W)
+    # merged_imgs = torch.cat([merged_imgs, black_patch], dim=2)  # concatenate along width
     merged_imgs = to_pil(merged_imgs)
     
     merged_imgs.save(f"eval_guidance_comparison_seed_{seed}_1.png")
@@ -500,7 +500,7 @@ def main(config: ModelConfig) -> None:
                     ##eval and saving:
                     if config.use_tatitok:
                         # out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
-                        out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1_val[0:vis_images], labels_detokenizer = y77_val[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z_val[0:vis_images])
+                        out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1_val[0:vis_images], labels_detokenizer = y77_val[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z_val[0:vis_images], image_cond_type=denoiser_config.image_cond_type)
                     else:
                         out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
                     
@@ -552,7 +552,7 @@ def main(config: ModelConfig) -> None:
                             ##eval and saving:
                             if config.use_tatitok:
                                 # out = eval_gen_1D(diffuser=diffuser, labels=y1_val, labels_detokenizer = y77_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
-                                out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1[0:vis_images], labels_detokenizer = y77[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z[0:vis_images])
+                                out = eval_gen_1D_extensive(diffuser=diffuser, gt_img=gt_img[0:vis_images], labels=y1[0:vis_images], labels_detokenizer = y77[0:vis_images], n_tokens=denoiser_config.seq_len, img_labels = z[0:vis_images], image_cond_type=denoiser_config.image_cond_type)
                             else:
                                 out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
                     

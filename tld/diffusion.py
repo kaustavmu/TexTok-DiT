@@ -212,8 +212,6 @@ class DiffusionGenerator1D:
         # shifting latents works a bit like an image editor:
         # x0_pred[:, 3, : ] += sharp_f
         # x0_pred[:, 0, : ] += bright_f
-        # x0_pred[:, 3, : ] += sharp_f
-        # x0_pred[:, 0, : ] += bright_f
 
         # pred_img_tokens = (x0_pred * scale_factor).to(self.model_dtype)
         pred_img_tokens = x0_pred.to(self.model_dtype)

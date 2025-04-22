@@ -115,7 +115,6 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         z = z.to('cuda') 
         if config.denoiser_config.image_cond_type == 'concat':
             z = transforms.Resize((x.shape[2], x.shape[3]))(z)
-            z_post = tatitok.encode(x.to('cuda'))[1]
             z_posterior = tatitok.encode(z.to('cuda'))[1]
             pooled = z_posterior.sample()[:,:,0,:]
 
