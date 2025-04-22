@@ -482,9 +482,9 @@ def main(config: ModelConfig) -> None:
 
             prob = 0.15 # classifier free guidance
             mask_txt = torch.rand(y1.size(0), device=accelerator.device) < prob
-            mask_img = torch.rand(z.size(0), device=accelerator.device) < prob
+            # mask_img = torch.rand(z.size(0), device=accelerator.device) < prob
             label[mask_txt] = 0  # OR replacement_vector
-            img_label[mask_img] = 0
+            # img_label[mask_img] = 0 #remove classifier free guidance for lr images
 
             if global_step % train_config.save_and_eval_every_iters == 0:
                 accelerator.wait_for_everyone()

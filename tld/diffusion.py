@@ -182,7 +182,9 @@ class DiffusionGenerator1D:
         
         labels = torch.cat([labels, torch.zeros_like(labels)])
         if img_labels is not None:
-            img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
+            # img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)]).to(self.device, self.model_dtype)
+            #remove classifier free guidance for lr images
+            img_labels = torch.cat([img_labels, img_labels]).to(self.device, self.model_dtype)
         self.model.eval()
 
         x0_pred_prev = None
