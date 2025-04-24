@@ -37,9 +37,10 @@ from transformers import AutoImageProcessor, AutoModel
 from PIL import Image, ImageDraw, ImageFont
 import requests
 
-import pdb
+import time
 #torch seed
 # torch.manual_seed(0)
+torch.cuda.set_device(1)
 
 def add_text_to_image(img, text):
         if isinstance(img, torch.Tensor):
@@ -151,7 +152,9 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, l
     return out
 
 
-def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, class_guidance = [4.5, 4, 6, 8, 10], image_cond_type:str = 'cross') -> Image:
+
+def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels: Tensor, n_tokens: int, labels_detokenizer = None, img_labels = None, class_guidance = [4.5, 4, 6, 8, 10, 15, 16, 18, 20, 50], image_cond_type:str = 'cross') -> Image:
+
     seed = 10
     batch_size = labels.shape[0]
     text_caption = " GT_truth  |  Pred with guidance : "
@@ -161,6 +164,7 @@ def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels
     # Add ground truth image first
     # gt_img = (torch.clamp(gt_img, 0.0, 1.0) * 255.0).to(dtype=torch.uint8)
     generated_imgs.append(gt_img)
+    start = time.time()
     # Generate images for each guidance scale
     for guidance in class_guidance:
         out, _ = diffuser.generate(
@@ -178,7 +182,7 @@ def eval_gen_1D_extensive(diffuser: DiffusionGenerator1D, gt_img: Tensor, labels
         )
         text_caption += f" {guidance}  |  "
         generated_imgs.append(out)
-
+        print(time.time()-start)
     # Stack all images horizontally for each sample in batch
     # Shape becomes [batch_size, num_versions, C, H, W]
     all_imgs = torch.stack(generated_imgs, dim=1)
@@ -422,7 +426,7 @@ def main(config: ModelConfig) -> None:
     accelerator.print(count_parameters_per_layer(model))
     
     save_model_cnt = 0
-
+    import pdb; pdb.set_trace()
     ### Train:
     for i in range(1, train_config.n_epoch + 1):
         accelerator.print(f"epoch: {i}")
@@ -544,7 +548,7 @@ def main(config: ModelConfig) -> None:
                         if accelerator.is_main_process:
                             vis_images = 8
                             with torch.no_grad():
-                                # import pdb; pdb.set_trace()
+                                
                                 gt_img = tatitok.decode(x.unsqueeze(2), y77)
                                 gt_img = torch.clamp(gt_img, 0.0, 1.0)
                                 gt_img = (gt_img * 255.0).to(dtype=torch.uint8).to("cpu")
@@ -571,8 +575,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Train TATiTok model')
-    parser.add_argument('--config', type=str, default='configs_cc12m',
-                        help='Name of config file to use (default: configs_cc12m)')
+    parser.add_argument('--config', type=str, default='configs',
+                        help='Name of config file to use (default: configs)')
     args = parser.parse_args()
 
     # Dynamically import the specified config file

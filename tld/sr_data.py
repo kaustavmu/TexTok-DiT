@@ -118,7 +118,6 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
             breakpoint()
             z_posterior = tatitok.encode(z.to('cuda'))[1]
             pooled = z_posterior.sample()[:,:,0,:]
-
         else:
             z -= torch.min(z)
             z /= torch.max(z)
@@ -126,6 +125,7 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         
             z = dino_model(**z)
             z = z[0]
+
 
             cls = z[:, 0]
             max_pooled = torch.max(z[:, 1:], dim = 1)[0]
