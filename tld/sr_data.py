@@ -115,6 +115,7 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         z = z.to('cuda') 
         if config.denoiser_config.image_cond_type == 'concat':
             z = transforms.Resize((x.shape[2], x.shape[3]))(z)
+            breakpoint()
             z_posterior = tatitok.encode(z.to('cuda'))[1]
             pooled = z_posterior.sample()[:,:,0,:]
 
@@ -158,25 +159,25 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
         '''
         
     
-    if config.use_tatitok:
-        x_val, y1_val, y77_val, z_val =  x_list[0], y1_list[0], y77_list[0], z_list[0]
+    # if config.use_tatitok:
+    #     x_val, y1_val, y77_val, z_val =  x_list[0], y1_list[0], y77_list[0], z_list[0]
 
-        x_all = np.concatenate(x_list[1:], axis=0)
-        y1_all = np.concatenate(y1_list[1:], axis=0)
-        y77_all = np.concatenate(y77_list[1:], axis=0)
-        z_all = np.concatenate(z_list[1:], axis=0)
+    #     x_all = np.concatenate(x_list[1:], axis=0)
+    #     y1_all = np.concatenate(y1_list[1:], axis=0)
+    #     y77_all = np.concatenate(y77_list[1:], axis=0)
+    #     z_all = np.concatenate(z_list[1:], axis=0)
 
-        np.savez(dataconfig.latent_path, x_all = x_all, x_val = x_val)
-        np.savez(dataconfig.text_emb_path, y1_all = y1_all, y1_val = y1_val)
-        np.savez(dataconfig.detokenizer_text_emb_path, y77_all = y77_all, y77_val = y77_val)
-        np.savez(dataconfig.lr_latent_path, z_all = z_all, z_val = z_val)
-    else:
-        x_val, y_val, z_val = x_list[0], y_list[0], z_list[0]
-        x_all = np.concatenate(x_list[1:], axis=0)
-        y_all = np.concatenate(y_list[1:], axis=0)
-        z_all = np.concatenate(z_list[1:], axis=0)
+    #     np.savez(dataconfig.latent_path, x_all = x_all, x_val = x_val)
+    #     np.savez(dataconfig.text_emb_path, y1_all = y1_all, y1_val = y1_val)
+    #     np.savez(dataconfig.detokenizer_text_emb_path, y77_all = y77_all, y77_val = y77_val)
+    #     np.savez(dataconfig.lr_latent_path, z_all = z_all, z_val = z_val)
+    # else:
+    #     x_val, y_val, z_val = x_list[0], y_list[0], z_list[0]
+    #     x_all = np.concatenate(x_list[1:], axis=0)
+    #     y_all = np.concatenate(y_list[1:], axis=0)
+    #     z_all = np.concatenate(z_list[1:], axis=0)
 
-        #np.savez("preprocess_vae.npz", x_all = x_all, x_val = x_val)
-        np.savez(dataconfig.latent_path, x_all = x_all, x_val = x_val)
-        np.savez(dataconfig.text_emb_path, y_all = y_all, y_val = y_val)
-        np.savez(dataconfig.lr_latent_path, z_all = z_all, z_val = z_val)
+    #     #np.savez("preprocess_vae.npz", x_all = x_all, x_val = x_val)
+    #     np.savez(dataconfig.latent_path, x_all = x_all, x_val = x_val)
+    #     np.savez(dataconfig.text_emb_path, y_all = y_all, y_val = y_val)
+    #     np.savez(dataconfig.lr_latent_path, z_all = z_all, z_val = z_val)
