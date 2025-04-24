@@ -97,10 +97,10 @@ class TrainConfig:
     beta_a: float = 1  
     beta_b: float = 2.5
     save_and_eval_every_iters: int = 1000
-    run_id: str = "8jd13a4z"
-    run_name: str = "iconic-lake-52"
+    run_id: str = "8jd13a4a"
+    run_name: str = "iconic-lake-54"
     # model_name: str = "/home/tchoudha/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
-    model_name: str = "checkpoints/2025-04-20_14-45-49/checkpoint_199000.pt"
+    model_name: str = "checkpoints/2025-04-21_21-55-01/checkpoint_572000.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True

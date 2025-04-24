@@ -115,7 +115,7 @@ if True: #not os.path.exists(dataconfig.lr_latent_path):
 
         z -= torch.min(z)
         z /= torch.max(z)
-        z = dino_processor(images=z, return_tensors="pt").to('cuda')
+        z = dino_processor(images=z, return_tensors="pt", do_rescale=False).to('cuda')
     
         z = dino_model(**z)
         z = z[0]

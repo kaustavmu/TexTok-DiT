@@ -10,31 +10,32 @@ from transformers import CLIPProcessor, CLIPModel
 from transformers import AutoImageProcessor, AutoModel
 import open_clip
 from open_clip.transformer import text_global_pool
-from termcolor import cprint
+# from termcolor import cprint
+from PIL import ExifTags
 
 from TitokTokenizer.modeling.titok import TiTok
 from TitokTokenizer.modeling.tatitok import TATiTok
 from tld.diffusion import encode_text
 from tld.sr_train import SR_COCODataset
-from tld.configs import ModelConfig, DataConfig, TrainConfig
+# from tld.configs import ModelConfig, DataConfig, TrainConfig
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 from PIL import Image
 from datasets import load_dataset
 from PIL import ImageDraw, ImageFont
 
-DEBUG = True
-# DEBUG = False
+# DEBUG = True
+DEBUG = False
 
-dataconfig = DataConfig()
-dataconfig.img_path = "/home/ubuntu/val2017"
-dataconfig.img_ann_path = "/home/ubuntu/annotations/captions_val2017.json"
+# dataconfig = DataConfig()
+# dataconfig.img_path = "/home/ubuntu/val2017"
+# dataconfig.img_ann_path = "/home/ubuntu/annotations/captions_val2017.json"
 
-config = ModelConfig(
-        data_config=dataconfig,
-        train_config=TrainConfig(),
-    )
+# config = ModelConfig(
+#         data_config=dataconfig,
+#         train_config=TrainConfig(),
+#     )
 
-train_config = config.train_config
+# train_config = config.train_config
 
 
 def save_comparison_image(sample_img, decoded_image, sample_caption, output_path="test_comparison.png"):
@@ -112,7 +113,7 @@ def convert_laion12m_to_wds(output_dir, max_train_samples_per_shard):
     print("Processing examples...")
     
     x_list, y1_list, y77_list, z_list = [], [], [], []
-    batch_size = 32  # Process in batches
+    batch_size = 128  # Process in batches
     current_batch = {'images': [], 'captions': [], 'lr_images': []}
     
     iterator = iter(dataset)
@@ -176,14 +177,14 @@ def convert_laion12m_to_wds(output_dir, max_train_samples_per_shard):
                 z = torch.cat([cls, max_pooled], dim=1)
             
                 if DEBUG:
-                    cprint(f'Tatitok input details{img_batch.shape}, {img_batch.min()}, {img_batch.max()}', 'green')
-                    cprint(f'Tatitok output details {encoded_tokens.shape}, {encoded_tokens.min()}, {encoded_tokens.max()}', 'green')
+                    # cprint(f'Tatitok input details{img_batch.shape}, {img_batch.min()}, {img_batch.max()}', 'green')
+                    # cprint(f'Tatitok output details {encoded_tokens.shape}, {encoded_tokens.min()}, {encoded_tokens.max()}', 'green')
                     
-                    cprint(f'CLIP output details y_77 {y_77.shape}', 'red')
-                    cprint(f'CLIP output details y_1 {y_1.shape}', 'red')
+                    # cprint(f'CLIP output details y_77 {y_77.shape}', 'red')
+                    # cprint(f'CLIP output details y_1 {y_1.shape}', 'red')
                     
-                    cprint(f'DINO input details {lr_batch.shape}, {lr_batch.min()}, {lr_batch.max()}', 'blue')
-                    cprint(f'DINO output details {z.shape}', 'blue')
+                    # cprint(f'DINO input details {lr_batch.shape}, {lr_batch.min()}, {lr_batch.max()}', 'blue')
+                    # cprint(f'DINO output details {z.shape}', 'blue')
 
 
                     # debugging to decode the image
@@ -255,4 +256,4 @@ def convert_laion12m_to_wds(output_dir, max_train_samples_per_shard):
 
 if __name__ == "__main__":
     # convert_laion12m_to_wds(output_dir="laion12m-processed", max_train_samples_per_shard=1000000, max_val_samples_per_shard=1000000)
-    convert_laion12m_to_wds(output_dir="/home/ubuntu/cc12m/", max_train_samples_per_shard=1000)
+    convert_laion12m_to_wds(output_dir="/home/tchoudha/cc12m/", max_train_samples_per_shard=2000000)

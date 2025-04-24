@@ -3,7 +3,7 @@ torchvision
 omegaconf
 transformers
 timm
-open_clip_torch
+open_clip_torch==2.31.0
 einops
 scipy
 pillow
