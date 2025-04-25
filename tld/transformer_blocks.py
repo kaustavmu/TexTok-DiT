@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from einops import rearrange
-
+import math
 
 class SinusoidalEmbedding(nn.Module):
     def __init__(self, emb_min_freq=1.0, emb_max_freq=1000.0, embedding_dims=32):
@@ -29,24 +29,54 @@ class MHAttention(nn.Module):
         self.dropout_level = dropout_level
         self.n_heads = n_heads
 
-    def forward(self, q, k, v, attn_mask=None):
+    def forward(self, q, k, v, attn_mask=None, vis=False):
         assert q.size(-1) == k.size(-1)
         assert k.size(-2) == v.size(-2)
+        
+        #print('q', q.shape, 'k', k.shape)
 
         q, k, v = [rearrange(x, "bs n (h d) -> bs h n d", h=self.n_heads) for x in [q, k, v]]
 
+        #print('q_n', q.shape, 'k_n', k.shape)
+
+        dropout_p = self.dropout_level if self.training else 0
+        
         out = nn.functional.scaled_dot_product_attention(
             q,
             k,
             v,
             attn_mask=attn_mask,
             is_causal=self.is_causal,
-            dropout_p=self.dropout_level if self.training else 0,
+            dropout_p=dropout_p,
         )
 
         out = rearrange(out, "bs h n d -> bs n (h d)", h=self.n_heads)
 
-        return out
+        if vis:
+            L, S = q.size(-2), k.size(-2)
+            scale_factor = 1 / math.sqrt(q.size(-1))
+            attn_bias = torch.zeros(L, S, dtype=q.dtype, device=q.device)
+            if self.is_causal:
+                assert attn_mask is None
+                temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+                attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+                attn_bias.to(q.dtype)
+
+            if attn_mask is not None:
+                if attn_mask.dtype == torch.bool:
+                    attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+                else:
+                    attn_bias = attn_mask + attn_bias
+             
+            attn_weight = q @ k.transpose(-2, -1) * scale_factor
+            #print('aw1', attn_weight.shape)
+            attn_weight += attn_bias
+            attn_weight = torch.softmax(attn_weight, dim=-1)
+            #print('aw2', attn_weight.shape)
+            attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+            return out, attn_weight
+        else:
+            return out, None
 
 
 class SelfAttention(nn.Module):
@@ -57,7 +87,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, x):
         q, k, v = self.qkv_linear(x).chunk(3, dim=2)
-        return self.mha(q, k, v)
+        return self.mha(q, k, v)[0]
 
 
 class CrossAttention(nn.Module):
@@ -67,10 +97,11 @@ class CrossAttention(nn.Module):
         self.q_linear = nn.Linear(embed_dim, embed_dim, bias=False)
         self.mha = MHAttention(is_causal, dropout_level, n_heads)
 
-    def forward(self, x, y):
+    def forward(self, x, y, vis = False):
         q = self.q_linear(x)
         k, v = self.kv_linear(y).chunk(2, dim=2)
-        return self.mha(q, k, v)
+        return self.mha(q, k, v, vis = vis)
+
 
 
 class MLP(nn.Module):
@@ -134,8 +165,10 @@ class DecoderBlock(nn.Module):
         self.norm2 = nn.LayerNorm(embed_dim)
         self.norm3 = nn.LayerNorm(embed_dim)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor, vis=False) -> torch.Tensor:
+        #print('comparitive size', x.shape, y.shape)
         x = self.self_attention(self.norm1(x)) + x
-        x = self.cross_attention(self.norm2(x), y) + x
+        out, attn_weights = self.cross_attention(self.norm2(x), y, vis=vis)
+        x = out + x
         x = self.mlp(self.norm3(x)) + x
-        return x
+        return x, attn_weights

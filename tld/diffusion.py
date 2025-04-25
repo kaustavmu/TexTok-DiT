@@ -49,6 +49,8 @@ class DiffusionGenerator:
         noise_levels=None,
         use_ddpm_plus: bool = True,
         img_labels = None,
+        image_cond_type = None,
+        vis = False
     ):
         """Generate images via reverse diffusion.
         if use_ddpm_plus=True uses Algorithm 2 DPM-Solver++(2M) here: https://arxiv.org/pdf/2211.01095.pdf
@@ -64,7 +66,7 @@ class DiffusionGenerator:
             rs = [hs[i - 1] / hs[i] for i in range(1, len(hs))]
 
         x_t = self.initialize_image(seeds, num_imgs, img_size, seed)
-        #print(x_t.shape)
+        print('xtshape', x_t.shape)
 
         labels = torch.cat([labels, torch.zeros_like(labels)])
         img_labels = torch.cat([img_labels, torch.zeros_like(img_labels)])
@@ -75,7 +77,7 @@ class DiffusionGenerator:
         for i in tqdm(range(len(noise_levels) - 1)):
             curr_noise, next_noise = noise_levels[i], noise_levels[i + 1]
             
-            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels = img_labels)
+            x0_pred, _ = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels = img_labels, image_cond_type=image_cond_type)
 
             if x0_pred_prev is None:
                 x_t = ((curr_noise - next_noise) * x0_pred + next_noise * x_t) / curr_noise
@@ -91,28 +93,30 @@ class DiffusionGenerator:
 
             x0_pred_prev = x0_pred
 
-        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels)
+        x0_pred, attn_weights = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels, image_cond_type=image_cond_type, vis=vis)
 
         # shifting latents works a bit like an image editor:
         x0_pred[:, 3, :, :] += sharp_f
         x0_pred[:, 0, :, :] += bright_f
 
         x0_pred_img = self.vae.decode((x0_pred * scale_factor).to(self.model_dtype))[0].cpu()
-        return x0_pred_img, x0_pred
+        return x0_pred_img, x0_pred, attn_weights
         #return x0_pred
 
-    def pred_image(self, noisy_image, labels, noise_level, class_guidance, img_labels):
+    def pred_image(self, noisy_image, labels, noise_level, class_guidance, img_labels, image_cond_type=None, vis=False):
         num_imgs = noisy_image.size(0)
         noises = torch.full((2 * num_imgs, 1), noise_level)
         #print('duh', noises.shape)
-        x0_pred = self.model(
+        x0_pred, attn_weights = self.model(
             torch.cat([noisy_image, noisy_image]),
             noises.to(self.device, self.model_dtype),
             labels.to(self.device, self.model_dtype),
             img_labels.to(self.device, self.model_dtype),
+            image_cond_type=image_cond_type,
+            vis = vis
         )
         x0_pred = self.apply_classifier_free_guidance(x0_pred, num_imgs, class_guidance)
-        return x0_pred
+        return x0_pred, attn_weights
 
     def initialize_image(self, seeds, num_imgs, img_size, seed):
         """Initialize the seed tensor."""
@@ -164,6 +168,7 @@ class DiffusionGenerator1D:
         noise_levels=None,
         use_ddpm_plus: bool = True,
         img_labels = None,
+        vis = False,
     ):
         """Generate images via reverse diffusion.
         if use_ddpm_plus=True uses Algorithm 2 DPM-Solver++(2M) here: https://arxiv.org/pdf/2211.01095.pdf
@@ -192,7 +197,7 @@ class DiffusionGenerator1D:
         for i in tqdm(range(len(noise_levels) - 1)):
             curr_noise, next_noise = noise_levels[i], noise_levels[i + 1]
 
-            x0_pred = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels=img_labels)
+            x0_pred, _ = self.pred_image(x_t, labels, curr_noise, class_guidance, img_labels=img_labels)
 
             if x0_pred_prev is None:
                 x_t = ((curr_noise - next_noise) * x0_pred + next_noise * x_t) / curr_noise
@@ -208,7 +213,7 @@ class DiffusionGenerator1D:
 
             x0_pred_prev = x0_pred
 
-        x0_pred = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels)
+        x0_pred, attn_weights = self.pred_image(x_t, labels, next_noise, class_guidance, img_labels = img_labels, vis = vis)
 
         # shifting latents works a bit like an image editor:
         x0_pred[:, 3, : ] += sharp_f
@@ -218,29 +223,42 @@ class DiffusionGenerator1D:
         pred_img_tokens = pred_img_tokens.permute(0, 2, 1) # changing it back to BND format
         print('pred_img_tokens', pred_img_tokens.shape)
 
+        attn_images = None
+
         if LTDConfig.use_titok:
             pred_img_tokens = pred_img_tokens.permute(0,2,1)
+            print(pred_img_tokens.unsqueeze(2).shape)
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2)).cpu()
+            attn_images = []
+            if attn_weights:
+                for layer in attn_weights:
+                    img_arr = []
+                    for i in range(3):
+                        attn_img = self.tokenizer.decode(layer[0:1,:,:,i].unsqueeze(2).cuda()).cpu()
+                        print(attn_img.shape)
+                        img_arr.append(attn_img.squeeze())
+                    attn_images.append(torch.stack(img_arr))
         elif LTDConfig.use_tatitok:
             pred_img_tokens = pred_img_tokens.permute(0,2,1)
             x0_pred_img = self.tokenizer.decode(pred_img_tokens.unsqueeze(2), original_labels).cpu()
         else:
             x0_pred_img = self.tokenizer.decode(pred_img_tokens, prompts).cpu()
-        return x0_pred_img, x0_pred
+        return x0_pred_img, x0_pred, attn_images
 
-    def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None):
+    def pred_image(self, noisy_latent, labels, noise_level, class_guidance, img_labels = None, vis = False):
         num_imgs = noisy_latent.size(0)
         noises = torch.full((2 * num_imgs, 1), noise_level) # noiselevel - timestep??
         #print('duhhhhhhh', noises.shape)
 
-        x0_pred = self.model(
+        x0_pred, attn_weights = self.model(
             torch.cat([noisy_latent, noisy_latent]),
             noises.to(self.device, self.model_dtype),
             labels.to(self.device, self.model_dtype),
-            img_labels
+            img_labels,
+            vis = vis
         )
         x0_pred = self.apply_classifier_free_guidance(x0_pred, num_imgs, class_guidance)
-        return x0_pred
+        return x0_pred, attn_weights
 
     def initialize_image(self, seeds, num_imgs, n_tokens, seed):
         """Initialize the seed tensor."""

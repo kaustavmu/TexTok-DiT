@@ -54,17 +54,21 @@ class DenoiserTransBlock1D(nn.Module):
 
         self.out_proj = nn.Linear(self.embed_dim, patch_dim)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, vis = False):
         # Convert input to high-dimensional embedding
+        #print('xshape', x.shape)
         x = self.patch_embedding(x)  # B x seq_len x embed_dim
+        #print('xshape2', x.shape)
 
         pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1)
         x = x + self.pos_embed(pos_enc)
+        attn_weights = []
 
         for block in self.decoder_blocks:
-            x = block(x, cond)
+            x, attn_weight = block(x, cond, vis=vis)
+            attn_weights.append(attn_weight)
 
-        return self.out_proj(x)
+        return self.out_proj(x), attn_weights
 
 
 class Denoiser1D(nn.Module):
@@ -80,7 +84,8 @@ class Denoiser1D(nn.Module):
         mlp_multiplier: int = 4,
         n_channels: int = 4,
         image_emb_size: int = 768,
-        super_res: bool = False
+        super_res: bool = False,
+        image_cond_type: str = None
     ):
         super().__init__()
 
@@ -102,7 +107,9 @@ class Denoiser1D(nn.Module):
         self.label_proj = nn.Linear(text_emb_size, self.embed_dim)
         self.image_proj = nn.Linear(2*image_emb_size, self.embed_dim)
 
-    def forward(self, x, noise_level, label, image = None):
+    def forward(self, x, noise_level, label, image = None, vis = False):
+        
+        #print(x.shape)
 
         x = x.permute(0, 2, 1)
         noise_level = self.fourier_feats(noise_level).unsqueeze(1)
@@ -116,10 +123,10 @@ class Denoiser1D(nn.Module):
             noise_label_emb = torch.cat([noise_level, label], dim=1)  # bs, 2, d
 
         noise_label_emb = self.norm(noise_label_emb)
-        x = self.denoiser_trans_block(x, noise_label_emb) #x: bs, 
+        x, attn_weights = self.denoiser_trans_block(x, noise_label_emb, vis = vis) #x: bs, 
 
         x = x.permute(0, 2, 1)
-        return x
+        return x, attn_weights
 
 if __name__ == "__main__":
     # Load configuration
@@ -224,15 +231,20 @@ class DenoiserTransBlock(nn.Module):
 
         self.out_proj = nn.Sequential(nn.Linear(self.embed_dim, patch_dim), self.rearrange2)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, repeat = 1, vis = False):
+        print('xshape', x.shape)
         x = self.patchify_and_embed(x)
-        pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1)
+        print('xshape2', x.shape)
+        pos_enc = self.precomputed_pos_enc[: x.size(1)].expand(x.size(0), -1).repeat(1, repeat)
         x = x + self.pos_embed(pos_enc)
+        print('xshape3', x.shape)
+        attn_weights = []
 
         for block in self.decoder_blocks:
-            x = block(x, cond)
+            x, attn_weight = block(x, cond, vis = vis)
+            attn_weights.append(attn_weight)
 
-        return self.out_proj(x)
+        return self.out_proj(x), attn_weights
 
 
 class Denoiser(nn.Module):
@@ -248,7 +260,8 @@ class Denoiser(nn.Module):
         mlp_multiplier: int = 4,
         n_channels: int = 4,
         image_emb_size: int = 768,
-        super_res: bool = True
+        super_res: bool = True,
+        image_cond_type: str = None
     ):
         super().__init__()
 
@@ -270,11 +283,11 @@ class Denoiser(nn.Module):
         self.label_proj = nn.Linear(text_emb_size, self.embed_dim)
         self.image_proj = nn.Linear(2*image_emb_size, self.embed_dim)
 
-    def forward(self, x, noise_level, label, image):
+    def forward(self, x, noise_level, label, image, image_cond_type = None, vis = False):
         noise_level = self.fourier_feats(noise_level).unsqueeze(1)
 
         label = self.label_proj(label).unsqueeze(1)
-        if image != None and self.super_res:
+        if image != None and self.super_res and image_cond_type != "concat":
             lr_img = self.image_proj(image).unsqueeze(1)
             #print('forward', x.shape, noise_level.shape, label.shape, lr_img.shape)
             noise_label_emb = torch.cat([noise_level, label, lr_img], dim=1)  # bs, 2, d
@@ -282,8 +295,14 @@ class Denoiser(nn.Module):
             noise_label_emb = torch.cat([noise_level, label], dim=1)  # bs, 2, d
 
         noise_label_emb = self.norm(noise_label_emb)
-        
+                
         #x = torch.randn(64, 12, 32, 32).to('cuda')
-        x = self.denoiser_trans_block(x, noise_label_emb)
+        if image_cond_type == "concat":
+            print(x.shape, image.shape)
+            x = torch.cat([x, image], dim=1)
+            x, attn_weights = self.denoiser_trans_block(x, noise_label_emb, repeat = 2, vis = vis)
+        else:
+            print('comparitive.shape', x.shape, noise_label_emb.shape)
+            x, attn_weights = self.denoiser_trans_block(x, noise_label_emb, vis = vis)
 
-        return x
+        return x, attn_weights

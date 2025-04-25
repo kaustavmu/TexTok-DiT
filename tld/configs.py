@@ -31,6 +31,7 @@ class DenoiserConfig:
     n_channels: int = 4 
     mlp_multiplier: int = 4
     super_res: bool = True
+    vis = True
 
 @dataclass
 class Denoiser1DConfig:
@@ -45,6 +46,7 @@ class Denoiser1DConfig:
     mlp_multiplier: int = 4
     image_emb_size: int | None = 768
     super_res: bool = True
+    vis = True
 
 @dataclass
 class DenoiserLoad:
@@ -78,16 +80,16 @@ class ClipConfig:
 @dataclass
 class DataConfig:
     """where is the latent data stored"""
-    latent_path: str = "preprocess_vae.npz"
-    text_emb_path: str = "preprocess_txt.npz"
-    lr_latent_path: str = "preprocess_lr.npz"
+    latent_path: str = "old_preprocess/preprocess_img.npz"
+    text_emb_path: str = "old_preprocess/preprocess_txt.npz"
+    lr_latent_path: str = "old_preprocess/preprocess_lr.npz"
     val_path: str = ""
     img_path: str = "/home/ubuntu/train2017"
     img_ann_path: str = "/home/ubuntu/annotations/captions_train2017.json"
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 32
+    batch_size: int = 16
     lr: float = 3e-4
     n_epoch: int = 250
     alpha: float = 0.999
@@ -97,8 +99,9 @@ class TrainConfig:
     beta_b: float = 2.5
     save_and_eval_every_iters: int = 1000
     run_id: str = "tsbs6ngk"
-    model_name: str = "/home/ubuntu/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
+    #model_name: str = "/home/ubuntu/TexTok-DiT/tld/checkpoints/2025-04-19_02-17-56/checkpoint_99000.pt"
     #model_name: str = "checkpoint.pt"
+    model_name: str = "/home/ubuntu/TexTok-DiT/tld/checkpoints/vae-sr/checkpoint_24000.pt"
     compile: bool = True
     save_model: bool = True
     use_wandb: bool = True
@@ -114,7 +117,7 @@ class LTDConfig:
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
     use_textok: bool = False
-    use_titok: bool = False
+    use_titok: bool = True
     use_tatitok: bool = False
 
 @dataclass
@@ -129,7 +132,7 @@ class ModelConfig:
     clip_cfg: ClipConfig = field(default_factory=ClipConfig)
     textok_cfg: TexTokConfig = field(default_factory=TexTokConfig)
     use_textok: bool = False
-    use_titok: bool = False
+    use_titok: bool = True
     use_tatitok: bool = False
     use_image_data: bool = True
     latents_path: str = "/home/ubuntu/TexTok-DiT/preprocess.npz"

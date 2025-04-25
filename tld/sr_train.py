@@ -11,6 +11,7 @@ import torchvision.transforms as transforms
 import torchvision.utils as vutils
 import wandb
 import cv2 as cv
+import cv2
 from accelerate import Accelerator
 from diffusers import AutoencoderKL
 from transformers import CLIPProcessor, CLIPModel
@@ -91,7 +92,7 @@ class SR_COCODataset(COCODataset):
         image, caption,lr_image = self._process(idx)
         return image, caption, lr_image
 
-def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_labels = None) -> Image:
+def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_labels = None, vis=False) -> Image:
     class_guidance = 4.5
     seed = 10
     
@@ -99,7 +100,7 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_la
     
     start = time.time()
 
-    out, _ = diffuser.generate(
+    out, _, attn_weights = diffuser.generate(
         labels=labels,#torch.repeat_interleave(labels, 2, dim=0),
         num_imgs=labels.shape[0],
         class_guidance=class_guidance,
@@ -108,22 +109,36 @@ def eval_gen(diffuser: DiffusionGenerator, labels: Tensor, img_size: int, img_la
         exponent=1,
         sharp_f=0.1,
         img_size=img_size,
-        img_labels = img_labels
+        img_labels = img_labels,
+        #image_cond_type = 'concat',
+        vis = vis
     )
 
     end = time.time()
 
     print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', start-end)
 
+    if attn_weights:
+        print([(i.shape) for i in attn_weights])
+        imgs = [np.mean(i.detach().cpu().numpy(), axis=1) for i in attn_weights]
+        #imgs = np.array(imgs)
+        #print(imgs.shape, np.min(imgs), np.max(imgs))
+        for idx, i in enumerate(imgs):
+            print(i.shape)
+            i = (i-np.min(i))/np.max(i) * 255
+            i = np.uint8(i)
+            i = i.reshape((16, 16, 3))
+            cv2.imwrite(str(idx) + '_attnwttest.png', i)
+    
     out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
     out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
 
     return out
 
-def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, img_labels = None) -> Image:
+def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, img_labels = None, vis = False) -> Image:
     class_guidance = 4.5
     seed = 10
-    out, _ = diffuser.generate(
+    out, _, attn_weights = diffuser.generate(
         labels=labels, #torch.repeat_interleave(labels, 2, dim=0),
         num_imgs=labels.shape[0],
         class_guidance=class_guidance,
@@ -132,8 +147,19 @@ def eval_gen_1D(diffuser: DiffusionGenerator1D, labels: Tensor, n_tokens: int, i
         exponent=1,
         sharp_f=0.1,
         n_tokens=n_tokens,
-        img_labels=img_labels
+        img_labels=img_labels,
+        vis = vis
     )
+
+    if attn_weights:
+        print([(i.shape) for i in attn_weights])
+        imgs = [np.mean(i.detach().cpu().numpy(), axis=1) for i in attn_weights]
+        #print(imgs.shape, np.min(imgs), np.max(imgs))
+        for idx, i in enumerate(imgs):
+            i = (i-np.min(i))/np.max(i) * 255
+            i = np.uint8(i)
+            i = i.transpose(1, 2, 0)
+            cv2.imwrite(str(idx) + '_titok_decoded_attnwttest.png', i)
 
     out = to_pil((vutils.make_grid((out + 1) / 2, nrow=8, padding=4)).float().clip(0, 1))
     out.save(f"emb_val_cfg:{class_guidance}_seed:{seed}.png")
@@ -274,7 +300,7 @@ def main(config: ModelConfig) -> None:
         z_val = torch.from_numpy(lr_latent_file['z_val']).to('cuda')
        
         x_all = torch.from_numpy(img_latent_file['x_all'])
-        x_all = x_all[:-16]
+        #x_all = x_all[:-16]
         y_all = torch.from_numpy(text_emb_file['y_all'])
         z_all = torch.from_numpy(lr_latent_file['z_all'])
         
@@ -383,6 +409,8 @@ def main(config: ModelConfig) -> None:
                 x = x / config.vae_cfg.vae_scale_factor
             '''
             #print(x.shape, y.shape, z.shape) 
+            
+            x = x / config.vae_cfg.vae_scale_factor
 
             noise_level = torch.tensor(
                 np.random.beta(train_config.beta_a, train_config.beta_b, len(x)), device=accelerator.device
@@ -414,10 +442,10 @@ def main(config: ModelConfig) -> None:
                 if accelerator.is_main_process:
                     ##eval and saving:
                     if config.use_titok or config.use_tatitok:
-                        out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val)
+                        out = eval_gen_1D(diffuser=diffuser, labels=y_val, n_tokens=denoiser_config.seq_len, img_labels = z_val, vis=denoiser_config.vis)
                     else:
-                        for _ in range(10):
-                            out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val)
+                        for _ in range(1):
+                            out = eval_gen(diffuser=diffuser, labels=y_val, img_size=denoiser_config.image_size, img_labels = z_val, vis=denoiser_config.vis)
                     out.save("img.jpg")
                     if train_config.use_wandb:
                         print(global_step)
@@ -445,7 +473,7 @@ def main(config: ModelConfig) -> None:
                 optimizer.zero_grad()
                
                 #print('srtrain', x_noisy.shape, noise_level.view(-1, 1).shape, label.shape, img_label.shape)\
-                pred = model(x_noisy, noise_level.view(-1, 1), label, img_label)
+                pred = model(x_noisy, noise_level.view(-1, 1), label, img_label, image_cond_type = "concat")
                 loss = loss_fn(pred, x)
 
                 accelerator.log({"train_loss": loss.item()}, step=global_step)
